@@ -75,6 +75,15 @@ class Flow_API {
     }
 
     /**
+     * Get Register Results
+     */
+    public function get_register_results($token) {
+        return $this->request('customer/getRegisterStatus', [
+            'token' => $token
+        ], 'GET');
+    }
+
+    /**
      * Create mandate for subscription
      */
     public function create_mandate($plan_id, $email, $name) {
