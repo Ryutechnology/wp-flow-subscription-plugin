@@ -91,13 +91,6 @@ class Flow_Shortcode {
             return;
         }
 
-        // Create plan in Flow
-        $plan = $this->get_flow_api()->create_plan($attributes['plan'], $attributes['amount']);
-        if (!empty($plan['code'])) {
-            echo '<p class="error">Error al crear plan en Flow: ' . esc_html($plan['message']) . '</p>';
-            return;
-        }
-
         // Create customer in Flow
         $customer = $this->get_flow_api()->create_customer($email, $name, $address, $city);
         if (!empty($customer['code'])) {
@@ -105,15 +98,31 @@ class Flow_Shortcode {
             return;
         }
 
+        // Store plan info in session before redirecting to Flow
+        if (session_status() == PHP_SESSION_NONE) {
+            session_start();
+        }
+        $_SESSION['flow_plan_info'] = [
+            'plan' => sanitize_title($attributes['plan']),
+            'amount' => intval($attributes['amount']),
+            'subscription_id' => $subscription_id,
+            'customer_id' => $customer['customerId'],
+            'user_id' => get_current_user_id(),
+            'timestamp' => time()
+        ];
+
         // Create credit card registration URL
-        $url_return = add_query_arg('flow_return', '1', site_url('/'));
+        $url_return = site_url('/flow-return');
         $card_registration = $this->get_flow_api()->register_credit_card($customer['customerId'], $url_return);
         if (!empty($card_registration['code'])) {
             echo '<p class="error">Error al registrar tarjeta en Flow: ' . esc_html($card_registration['message']) . '</p>';
             return;
         }
         if (!empty($card_registration['url'])) {
-            wp_redirect($card_registration['url'] . '?token=' . $card_registration['token']);
+            $base_url = $card_registration['url'];
+            $token = $card_registration['token'];
+            $redirect_url = add_query_arg(array('token'=>$token), $base_url);
+            wp_redirect($redirect_url);
             exit;
         }
 
@@ -125,24 +134,11 @@ class Flow_Shortcode {
         // Create WooCommerce customer lookup entry
         $this->get_wc_integration()->create_customer_lookup($name, $email, $city, $customer['customerId']);
 
-        // Create mandate
-        $mandate = $this->get_flow_api()->create_mandate($plan['planId'], $email, $name);
-        if (!empty($mandate['code'])) {
-            echo '<p class="error">Error al crear mandato en Flow: ' . esc_html($mandate['message']) . '</p>';
-            return;
-        }
-
         // Update subscription with mandate ID and set as active
         $this->get_flow_db()->update_subscription($subscription_id, [
             'mandato_id' => $mandate['id'],
             'status' => 'activo'
         ]);
-
-        // Redirect to Flow URL if available
-        if (!empty($mandate['url'])) {
-            wp_redirect($mandate['url']);
-            exit;
-        }
 
         echo '<div class="flow-success">';
         echo '<p>¡Suscripción creada exitosamente!</p>';

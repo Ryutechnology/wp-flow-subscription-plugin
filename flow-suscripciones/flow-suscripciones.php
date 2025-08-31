@@ -106,6 +106,9 @@ class Flow_Suscripciones {
             // Initialize public shortcode
             $this->shortcode = new Flow_Shortcode();
             
+            // Initialize flow return handler
+            new Flow_Activator();
+            
             // Initialize cron jobs
             $this->cron = new Flow_Cron();
         } catch (Exception $e) {
@@ -122,7 +125,7 @@ class Flow_Suscripciones {
      */
     public function activate_plugin() {
         Flow_Activator::activate();
-        
+        Flow_Activator::activate_new_page();
         // Flush rewrite rules
         flush_rewrite_rules();
     }
