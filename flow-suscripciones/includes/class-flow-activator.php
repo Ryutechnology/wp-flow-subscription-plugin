@@ -59,6 +59,7 @@ class Flow_Activator {
 
     public function __construct() {
         add_shortcode('flow_return', [$this, 'handle_flow_return']);
+        add_action('rest_api_init', [$this, 'register_rest_endpoints']);
     }
     
     public function handle_flow_return() {
@@ -76,10 +77,10 @@ class Flow_Activator {
             if ($result['status'] === '1') {
                 $customer = $result['customerId'];
                 
-                // Get plan info from session or database instead of undefined $attributes
-                $plan_info = $this->get_plan_info_from_session();
+                // Get plan info from database using customer ID
+                $plan_info = $this->get_plan_info_from_customer($customer);
                 if (!$plan_info) {
-                    echo '<p class="error">No se pudo obtener información del plan.</p>';
+                    echo '<p class="error">No se pudo obtener información del plan para el cliente: ' . esc_html($customer) . '</p>';
                     return;
                 }
                 
@@ -95,8 +96,16 @@ class Flow_Activator {
                     return;
                 }
                 
-                // Clear session data after successful processing
-                unset($_SESSION['flow_plan_info']);
+                // Update subscription status in database
+                global $wpdb;
+                $table = $wpdb->prefix . 'flow_subscriptions';
+                $wpdb->update(
+                    $table,
+                    ['status' => 'activa', 'mandato_id' => $subscription['subscriptionId'] ?? null],
+                    ['id' => $plan_info['subscription_id']],
+                    ['%s', '%s'],
+                    ['%d']
+                );
                 
                 echo '<p class="success">Suscripción exitosa. </p>';
             } else {
@@ -107,24 +116,25 @@ class Flow_Activator {
         }
     }
     
-    private function get_plan_info_from_session() {
-        if (session_status() == PHP_SESSION_NONE) {
-            session_start();
-        }
+    private function get_plan_info_from_customer($customer_id) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'flow_subscriptions';
         
-        if (!isset($_SESSION['flow_plan_info'])) {
+        $subscription = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE flow_customer_id = %s ORDER BY created_at DESC LIMIT 1",
+            $customer_id
+        ), ARRAY_A);
+        
+        if (!$subscription) {
             return null;
         }
         
-        $plan_info = $_SESSION['flow_plan_info'];
-        
-        // Validate session data hasn't expired (24 hours)
-        if (isset($plan_info['timestamp']) && (time() - $plan_info['timestamp']) > 86400) {
-            unset($_SESSION['flow_plan_info']);
-            return null;
-        }
-        
-        return $plan_info;
+        return [
+            'plan' => $subscription['plan_id'],
+            'amount' => $subscription['amount'],
+            'subscription_id' => $subscription['id'],
+            'customer_id' => $customer_id
+        ];
     }
 
     private function get_flow_api() {
@@ -132,5 +142,161 @@ class Flow_Activator {
             $this->flow_api = new Flow_API();
         }
         return $this->flow_api;
+    }
+
+    public function register_rest_endpoints() {
+        register_rest_route('flow/v1', '/webhook', [
+            'methods' => 'POST',
+            'callback' => [$this, 'handle_flow_webhook'],
+            'permission_callback' => '__return_true'
+        ]);
+
+        register_rest_route('flow/v1', '/return', [
+            'methods' => 'POST',
+            'callback' => [$this, 'handle_flow_return_post'],
+            'permission_callback' => '__return_true'
+        ]);
+    }
+
+    public function handle_flow_webhook(WP_REST_Request $request) {
+        $body = $request->get_body();
+        $data = json_decode($body, true);
+
+        error_log('Flow Webhook received: ' . print_r($data, true));
+
+        if (!$data) {
+            return new WP_REST_Response(['error' => 'Invalid JSON'], 400);
+        }
+
+        try {
+            if (isset($data['type'])) {
+                switch ($data['type']) {
+                    case 'subscription_created':
+                        return $this->handle_subscription_created($data);
+                    case 'payment_completed':
+                        return $this->handle_payment_completed($data);
+                    case 'subscription_cancelled':
+                        return $this->handle_subscription_cancelled($data);
+                    default:
+                        error_log('Unknown webhook type: ' . $data['type']);
+                        return new WP_REST_Response(['message' => 'Unknown event type'], 200);
+                }
+            }
+
+            return new WP_REST_Response(['message' => 'Webhook processed'], 200);
+
+        } catch (Exception $e) {
+            error_log('Flow webhook error: ' . $e->getMessage());
+            return new WP_REST_Response(['error' => 'Internal error'], 500);
+        }
+    }
+
+    public function handle_flow_return_post(WP_REST_Request $request) {
+        $params = $request->get_params();
+        
+        if (!isset($params['token'])) {
+            return new WP_REST_Response(['error' => 'Token required'], 400);
+        }
+
+        $token = sanitize_text_field($params['token']);
+        $result = $this->get_flow_api()->get_register_results($token);
+
+        if (!empty($result['code'])) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => $result['message']
+            ], 400);
+        }
+
+        if ($result['status'] === '1') {
+            $customer = $result['customerId'];
+            
+            $plan_info = $this->get_plan_info_from_customer($customer);
+            if (!$plan_info) {
+                return new WP_REST_Response([
+                    'success' => false,
+                    'message' => 'No se pudo obtener información del plan para el cliente: ' . $customer
+                ], 400);
+            }
+            
+            $plan = $this->get_flow_api()->create_plan($plan_info['plan'], $plan_info['amount']);
+            if (!empty($plan['code'])) {
+                return new WP_REST_Response([
+                    'success' => false,
+                    'message' => 'Error al crear plan en Flow: ' . $plan['message']
+                ], 400);
+            }
+
+            $subscription = $this->get_flow_api()->create_subscription($plan['planId'], $customer);
+            if (!empty($subscription['code'])) {
+                return new WP_REST_Response([
+                    'success' => false,
+                    'message' => 'Error al crear suscripción en Flow: ' . $subscription['message']
+                ], 400);
+            }
+            
+            // Update subscription status in database
+            global $wpdb;
+            $table = $wpdb->prefix . 'flow_subscriptions';
+            $wpdb->update(
+                $table,
+                ['status' => 'activa', 'mandato_id' => $subscription['subscriptionId'] ?? null],
+                ['id' => $plan_info['subscription_id']],
+                ['%s', '%s'],
+                ['%d']
+            );
+            
+            return new WP_REST_Response([
+                'success' => true,
+                'message' => 'Suscripción creada exitosamente',
+                'subscription_id' => $subscription['subscriptionId'] ?? null
+            ], 200);
+            
+        } else {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'El registro no fue exitoso. Estado: ' . $result['status']
+            ], 400);
+        }
+    }
+
+    private function handle_subscription_created($data) {
+        global $wpdb;
+        
+        $table = $wpdb->prefix . 'flow_subscriptions';
+        $wpdb->update(
+            $table,
+            ['status' => 'activa'],
+            ['mandato_id' => $data['subscription_id']],
+            ['%s'],
+            ['%s']
+        );
+
+        do_action('flow_subscription_created', $data);
+        
+        return new WP_REST_Response(['message' => 'Subscription created processed'], 200);
+    }
+
+    private function handle_payment_completed($data) {
+        do_action('flow_payment_completed', $data);
+        
+        return new WP_REST_Response(['message' => 'Payment completed processed'], 200);
+    }
+
+    private function handle_subscription_cancelled($data) {
+        global $wpdb;
+        
+        $table = $wpdb->prefix . 'flow_subscriptions';
+        $wpdb->update(
+            $table,
+            ['status' => 'cancelada'],
+            ['mandato_id' => $data['subscription_id']],
+            ['%s'],
+            ['%s']
+        );
+
+        do_action('flow_subscription_cancelled', $data);
+        
+        return new WP_REST_Response(['message' => 'Subscription cancelled processed'], 200);
     }
 }

@@ -87,8 +87,8 @@ class Flow_API {
      * Create mandate for subscription
      */
     public function create_mandate($plan_id, $email, $name) {
-        $url_return = add_query_arg('flow_return', '1', site_url('/'));
-        $url_confirmation = add_query_arg('flow_confirm', '1', site_url('/'));
+        $url_return = rest_url('flow/v1/return');
+        $url_confirmation = rest_url('flow/v1/webhook');
         
         return $this->request('subscription/createMandate', [
             'planId' => $plan_id,
@@ -143,5 +143,19 @@ class Flow_API {
             'amount' => $amount,
             'description' => $description
         ]);
+    }
+
+    /**
+     * Get webhook URL for Flow configuration
+     */
+    public function get_webhook_url() {
+        return rest_url('flow/v1/webhook');
+    }
+
+    /**
+     * Get return URL for Flow configuration
+     */
+    public function get_return_url() {
+        return rest_url('flow/v1/return');
     }
 }

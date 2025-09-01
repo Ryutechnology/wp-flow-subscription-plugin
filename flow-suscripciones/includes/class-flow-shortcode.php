@@ -107,12 +107,11 @@ class Flow_Shortcode {
             'amount' => intval($attributes['amount']),
             'subscription_id' => $subscription_id,
             'customer_id' => $customer['customerId'],
-            'user_id' => get_current_user_id(),
             'timestamp' => time()
         ];
 
         // Create credit card registration URL
-        $url_return = site_url('/flow-return');
+        $url_return = rest_url('/flow/v1/return');
         $card_registration = $this->get_flow_api()->register_credit_card($customer['customerId'], $url_return);
         if (!empty($card_registration['code'])) {
             echo '<p class="error">Error al registrar tarjeta en Flow: ' . esc_html($card_registration['message']) . '</p>';
