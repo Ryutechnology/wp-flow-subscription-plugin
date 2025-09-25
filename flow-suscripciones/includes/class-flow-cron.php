@@ -86,7 +86,7 @@ class Flow_Cron {
         }
 
         $description = "Cobro suscripción - {$subscription->name} ({$subscription->plan_id})";
-        
+
         $charge_result = $this->get_flow_api()->charge_mandate(
             $subscription->mandato_id,
             $subscription->amount,
@@ -96,13 +96,13 @@ class Flow_Cron {
         if (!empty($charge_result['error']) || !empty($charge_result['code'])) {
             // Log error
             $this->log_charge_error($subscription, $charge_result);
-            
+
             // Optionally mark subscription as failed after X attempts
             $this->handle_failed_charge($subscription, $charge_result);
         } else {
             // Success - log and update stats
             $this->log_successful_charge($subscription, $charge_result);
-            
+
             // Create WooCommerce order if integration is active
             if ($this->get_wc_integration()->is_woocommerce_available()) {
                 $this->get_wc_integration()->create_subscription_order(
@@ -120,11 +120,11 @@ class Flow_Cron {
     private function should_charge_today($subscription) {
         $created_date = new DateTime($subscription->created_at);
         $today = new DateTime();
-        
+
         // Check if it's the monthly billing day
         $billing_day = $created_date->format('j'); // Day of month
         $current_day = $today->format('j');
-        
+
         return $billing_day == $current_day;
     }
 

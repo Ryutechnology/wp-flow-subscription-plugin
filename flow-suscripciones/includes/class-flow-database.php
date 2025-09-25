@@ -62,10 +62,22 @@ class Flow_Database {
      */
     public function get_subscription_by_email($email) {
         global $wpdb;
-        
+
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$this->table_name} WHERE email = %s",
             $email
+        ));
+    }
+
+    /**
+     * Get subscription by mandate ID
+     */
+    public function get_subscription_by_mandate_id($mandate_id) {
+        global $wpdb;
+
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$this->table_name} WHERE mandato_id = %s",
+            $mandate_id
         ));
     }
 

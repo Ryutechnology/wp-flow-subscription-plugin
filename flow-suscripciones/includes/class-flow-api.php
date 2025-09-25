@@ -44,7 +44,7 @@ class Flow_API {
     /**
      * Create or get existing plan
      */
-    public function create_plan($name, $amount) {
+    public function create_plan($name, $amount = 1000) {
         $plan_id = $this->create_plan_id($name);
         
         // Try to get existing plan first

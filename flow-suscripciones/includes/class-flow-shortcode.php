@@ -110,8 +110,14 @@ class Flow_Shortcode {
             'timestamp' => time()
         ];
 
+        $plan = $this->get_flow_api()->create_plan($_SESSION['flow_plan_info']['plan'], $_SESSION['flow_plan_info']['amount']);
+        if (!empty($plan['code'])) {
+            echo '<p class="error">Error al crear plan en Flow: ' . esc_html($plan['message']) . '</p>';
+            return;
+        }
+
         // Create credit card registration URL
-        $url_return = rest_url('/flow/v1/return');
+        $url_return = rest_url('/flow/v1/return?planId='.$plan['planId']);
         $card_registration = $this->get_flow_api()->register_credit_card($customer['customerId'], $url_return);
         if (!empty($card_registration['code'])) {
             echo '<p class="error">Error al registrar tarjeta en Flow: ' . esc_html($card_registration['message']) . '</p>';

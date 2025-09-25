@@ -66,6 +66,7 @@ class Flow_Activator {
         if (isset($_GET['token'])) {
             echo '<h2>Procesando retorno de Flow...</h2>';
 
+            $plan_id = sanitize_text_field($_GET['planId']);
             $token = sanitize_text_field($_GET['token']);
             $result = $this->get_flow_api()->get_register_results($token);
 
@@ -76,15 +77,9 @@ class Flow_Activator {
 
             if ($result['status'] === '1') {
                 $customer = $result['customerId'];
-                
-                // Get plan info from database using customer ID
-                $plan_info = $this->get_plan_info_from_customer($customer);
-                if (!$plan_info) {
-                    echo '<p class="error">No se pudo obtener información del plan para el cliente: ' . esc_html($customer) . '</p>';
-                    return;
-                }
-                
-                $plan = $this->get_flow_api()->create_plan($plan_info['plan'], $plan_info['amount']);
+
+                // Get plan
+                $plan = $this->get_flow_api()->create_plan($plan_id);
                 if (!empty($plan['code'])) {
                     echo '<p class="error">Error al crear plan en Flow: ' . esc_html($plan['message']) . '</p>';
                     return;
@@ -95,7 +90,7 @@ class Flow_Activator {
                     echo '<p class="error">Error al crear suscripción en Flow: ' . esc_html($subscription['message']) . '</p>';
                     return;
                 }
-                
+
                 // Update subscription status in database
                 global $wpdb;
                 $table = $wpdb->prefix . 'flow_subscriptions';
@@ -193,11 +188,12 @@ class Flow_Activator {
 
     public function handle_flow_return_post(WP_REST_Request $request) {
         $params = $request->get_params();
-        
+        echo('Params: ' . print_r($params, true));
         if (!isset($params['token'])) {
             return new WP_REST_Response(['error' => 'Token required'], 400);
         }
 
+        $plan_id = sanitize_text_field($_GET['planId']);
         $token = sanitize_text_field($params['token']);
         $result = $this->get_flow_api()->get_register_results($token);
 
@@ -210,16 +206,8 @@ class Flow_Activator {
 
         if ($result['status'] === '1') {
             $customer = $result['customerId'];
-            
-            $plan_info = $this->get_plan_info_from_customer($customer);
-            if (!$plan_info) {
-                return new WP_REST_Response([
-                    'success' => false,
-                    'message' => 'No se pudo obtener información del plan para el cliente: ' . $customer
-                ], 400);
-            }
-            
-            $plan = $this->get_flow_api()->create_plan($plan_info['plan'], $plan_info['amount']);
+
+            $plan = $this->get_flow_api()->create_plan($plan_id);
             if (!empty($plan['code'])) {
                 return new WP_REST_Response([
                     'success' => false,
