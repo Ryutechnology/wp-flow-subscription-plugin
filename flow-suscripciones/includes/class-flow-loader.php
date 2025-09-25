@@ -37,6 +37,7 @@ class Flow_Loader {
             'class-flow-activator.php',     // No dependencies
             'class-flow-api.php',           // No dependencies
             'class-flow-database.php',      // No dependencies
+            'class-flow-subscription.php',  // Depends on API, DB
             'class-flow-woocommerce.php',   // No dependencies
             'class-flow-admin.php',         // Depends on database
             'class-flow-shortcode.php',     // Depends on API, DB, WC
@@ -58,7 +59,8 @@ class Flow_Loader {
         $required_classes = [
             'Flow_Activator',
             'Flow_API',
-            'Flow_Database', 
+            'Flow_Database',
+            'Flow_Subscription',
             'Flow_WooCommerce',
             'Flow_Admin',
             'Flow_Shortcode',
