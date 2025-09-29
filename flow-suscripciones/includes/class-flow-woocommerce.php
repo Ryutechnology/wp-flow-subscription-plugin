@@ -16,7 +16,57 @@ class Flow_WooCommerce {
      * Initialize WooCommerce integration
      */
     public function init() {
-        // Add any WooCommerce specific hooks here
+        // Register Flow payment gateway
+        add_filter('woocommerce_payment_gateways', [$this, 'add_flow_gateway']);
+
+        // Load payment gateway class
+        add_action('plugins_loaded', [$this, 'load_payment_gateway']);
+
+        // Sync credentials on admin init
+        add_action('admin_init', [$this, 'sync_flow_credentials']);
+    }
+
+    /**
+     * Load Flow payment gateway class
+     */
+    public function load_payment_gateway() {
+        if (!class_exists('WC_Payment_Gateway')) {
+            return;
+        }
+
+        require_once plugin_dir_path(__FILE__) . 'class-flow-payment-gateway.php';
+    }
+
+    /**
+     * Add Flow payment gateway to WooCommerce
+     */
+    public function add_flow_gateway($gateways) {
+        if (class_exists('Flow_Payment_Gateway')) {
+            $gateways[] = 'Flow_Payment_Gateway';
+        }
+        return $gateways;
+    }
+
+    /**
+     * Sync Flow API credentials with payment gateway
+     */
+    public function sync_flow_credentials() {
+        $flow_api_key = get_option('flow_api_key');
+        $flow_secret_key = get_option('flow_secret_key');
+
+        if ($flow_api_key && $flow_secret_key) {
+            // Update payment gateway settings
+            $gateway_settings = get_option('woocommerce_flow_settings', []);
+            $gateway_settings['api_key'] = $flow_api_key;
+            $gateway_settings['secret_key'] = $flow_secret_key;
+
+            // Enable gateway if credentials are available
+            if (empty($gateway_settings['enabled'])) {
+                $gateway_settings['enabled'] = 'yes';
+            }
+
+            update_option('woocommerce_flow_settings', $gateway_settings);
+        }
     }
 
     /**
@@ -39,21 +89,39 @@ class Flow_WooCommerce {
         $first_name = $name_parts[0];
         $last_name = isset($name_parts[1]) ? $name_parts[1] : '';
 
-        // Insert directly into wc_customer_lookup table
-        $result = $wpdb->insert($wpdb->prefix . 'wc_customer_lookup', [
+        // Check which columns exist in wc_customer_lookup table
+        $columns = $wpdb->get_col("DESCRIBE {$wpdb->prefix}wc_customer_lookup");
+        error_log("WooCommerce customer lookup columns: " . print_r($columns, true));
+
+        // Prepare data with only columns that exist in the table
+        $customer_data = [
             'user_id' => 0, // Guest customer
-            'username' => sanitize_user(current(explode('@', $email))),
             'email' => $email,
             'date_registered' => current_time('mysql'),
-            'date_last_active' => current_time('mysql'),
-            'orders_count' => 0,
-            'total_spent' => 0,
-            'avg_order_value' => 0,
-            'city' => $city,
-            'first_name' => $first_name,
-            'last_name' => $last_name,
-            'flow_customer_id' => $flow_customer_id
-        ]);
+            'date_last_active' => current_time('mysql')
+        ];
+
+        // Add optional columns only if they exist
+        if (in_array('username', $columns)) {
+            $customer_data['username'] = sanitize_user(current(explode('@', $email)));
+        }
+        if (in_array('city', $columns)) {
+            $customer_data['city'] = $city;
+        }
+        if (in_array('first_name', $columns)) {
+            $customer_data['first_name'] = $first_name;
+        }
+        if (in_array('last_name', $columns)) {
+            $customer_data['last_name'] = $last_name;
+        }
+        if (in_array('flow_customer_id', $columns)) {
+            $customer_data['flow_customer_id'] = $flow_customer_id;
+        }
+
+        error_log("WooCommerce customer data to insert: " . print_r($customer_data, true));
+
+        // Insert directly into wc_customer_lookup table
+        $result = $wpdb->insert($wpdb->prefix . 'wc_customer_lookup', $customer_data);
 
         return $result !== false;
     }
@@ -106,16 +174,9 @@ class Flow_WooCommerce {
             return false;
         }
 
-        $new_orders_count = $customer->orders_count + $order_count_increment;
-        $new_total_spent = $customer->total_spent + $amount_spent;
-        $new_avg_order_value = $new_orders_count > 0 ? $new_total_spent / $new_orders_count : 0;
-
         return $wpdb->update(
             $wpdb->prefix . 'wc_customer_lookup',
             [
-                'orders_count' => $new_orders_count,
-                'total_spent' => $new_total_spent,
-                'avg_order_value' => $new_avg_order_value,
                 'date_last_active' => current_time('mysql')
             ],
             ['email' => $email]
@@ -123,70 +184,538 @@ class Flow_WooCommerce {
     }
 
     /**
-     * Create WooCommerce order for subscription
+     * Create WooCommerce customer and order for subscription
      */
-    public function create_subscription_order($email, $plan_name, $amount) {
+    public function create_subscription_order($email, $plan_name, $amount, $customer_name = '', $customer_city = '') {
+        error_log("Flow Debug: Creating subscription order - Email: {$email}, Plan: {$plan_name}, Amount: {$amount}");
+
         if (!class_exists('WC_Order')) {
+            error_log('Flow Debug: WC_Order class not found');
             return false;
         }
 
-        $customer = $this->get_customer_by_email($email);
-        if (!$customer) {
-            return false;
-        }
+        // Get or create WooCommerce customer first
+        $customer_id = $this->get_or_create_wc_customer($email, $customer_name, $customer_city);
+        error_log("Flow Debug: Customer ID obtained: {$customer_id}");
 
         // Create new order
         $order = wc_create_order();
-        
-        // Set customer
-        if ($customer->user_id > 0) {
-            $order->set_customer_id($customer->user_id);
+
+        // Set customer if created/found
+        if ($customer_id > 0) {
+            $order->set_customer_id($customer_id);
         }
 
-        // Set billing details
+        // Set billing details from customer or provided data
         $order->set_billing_email($email);
-        $order->set_billing_first_name($customer->first_name);
-        $order->set_billing_last_name($customer->last_name);
-        $order->set_billing_city($customer->city);
 
-        // Add subscription item
-        $item = new WC_Order_Item_Product();
-        $item->set_name($plan_name . ' - Suscripción');
-        $item->set_quantity(1);
-        $item->set_subtotal($amount);
-        $item->set_total($amount);
-        
-        $order->add_item($item);
-        
+        if ($customer_id > 0) {
+            // Use WooCommerce customer data
+            $wc_customer = new WC_Customer($customer_id);
+            $order->set_billing_first_name($wc_customer->get_first_name());
+            $order->set_billing_last_name($wc_customer->get_last_name());
+            $order->set_billing_city($wc_customer->get_billing_city());
+            $order->set_billing_address_1($wc_customer->get_billing_address_1());
+            $order->set_billing_state($wc_customer->get_billing_state());
+            $order->set_billing_country($wc_customer->get_billing_country());
+        } else {
+            // Fallback to provided data for guest customers
+            $name_parts = explode(' ', $customer_name, 2);
+            $order->set_billing_first_name($name_parts[0] ?? '');
+            $order->set_billing_last_name($name_parts[1] ?? '');
+            $order->set_billing_city($customer_city);
+        }
+
+        // Get or create WooCommerce product for this subscription plan
+        $product_id = $this->get_or_create_subscription_product($plan_name, $plan_name, $amount);
+        error_log("Flow Debug: Product ID obtained: {$product_id}");
+
+        if ($product_id > 0) {
+            // Add actual WooCommerce product to order
+            $product = wc_get_product($product_id);
+            error_log("Flow Debug: Product loaded: " . ($product ? 'Success' : 'Failed'));
+
+            $item = new WC_Order_Item_Product();
+            $item->set_product($product);
+            $item->set_name($product->get_name());
+            $item->set_product_id($product_id);
+            $item->set_variation_id(0);
+            $item->set_quantity(1);
+            $item->set_subtotal($amount);
+            $item->set_total($amount);
+
+            // Add product meta data to order item
+            $item->add_meta_data('_flow_plan_id', $plan_name, true);
+            $item->add_meta_data('_flow_subscription_payment', 'yes', true);
+
+            $order->add_item($item);
+            error_log("Flow Debug: Added product to order");
+        } else {
+            // Fallback to generic item if product creation fails
+            error_log("Flow Debug: Using fallback generic item");
+            $item = new WC_Order_Item_Product();
+            $item->set_name($plan_name . ' - Suscripción');
+            $item->set_quantity(1);
+            $item->set_subtotal($amount);
+            $item->set_total($amount);
+            $item->add_meta_data('_flow_plan_id', $plan_name, true);
+            $item->add_meta_data('_flow_subscription_payment', 'yes', true);
+
+            $order->add_item($item);
+        }
+
         // Calculate totals
         $order->calculate_totals();
-        
+        error_log("Flow Debug: Order totals calculated");
+
         // Set order status
         $order->set_status('processing');
-        
+        error_log("Flow Debug: Order status set to processing");
+
         // Add order note
-        $order->add_order_note('Orden creada automáticamente por Flow Suscripciones');
-        
+        $order->add_order_note('Orden creada automáticamente por Flow Suscripciones - Pago de suscripción');
+
         // Save order
-        $order->save();
-        
-        // Update customer stats
-        $this->update_customer_stats($email, 1, $amount);
-        
-        return $order->get_id();
+        $order_id = $order->save();
+        error_log("Flow Debug: Order saved with ID: {$order_id}");
+
+        if (!$order_id) {
+            error_log("Flow Debug: ERROR - Order save failed!");
+            return false;
+        }
+
+        // Update customer stats if using lookup table
+        if ($this->is_woocommerce_available()) {
+            $lookup_customer = $this->get_customer_by_email($email);
+            if ($lookup_customer) {
+                $this->update_customer_stats($email, 1, $amount);
+                error_log("Flow Debug: Customer stats updated");
+            }
+        }
+
+        error_log("Flow Debug: Order creation completed successfully - Order ID: {$order_id}");
+        return $order_id;
+    }
+
+    /**
+     * Get or create WooCommerce product for subscription plan
+     */
+    public function get_or_create_subscription_product($plan_id, $plan_name, $amount, $description = '') {
+        error_log("Flow Debug: Creating product for plan: {$plan_id}, name: {$plan_name}, amount: {$amount}");
+
+        if (!class_exists('WC_Product')) {
+            error_log('Flow Debug: WC_Product class not found');
+            return 0;
+        }
+
+        // Check if product already exists by SKU (using plan_id as SKU)
+        $sku = 'flow-subscription-' . $plan_id;
+        $product_id = wc_get_product_id_by_sku($sku);
+        error_log("Flow Debug: Checking existing product with SKU: {$sku}, found ID: {$product_id}");
+
+        if ($product_id > 0) {
+            error_log("Flow Debug: Found existing product with ID: {$product_id}");
+            return $product_id;
+        }
+
+        // Create new subscription product
+        error_log("Flow Debug: Creating new product");
+        $product = new WC_Product_Simple();
+
+        // Set basic product information
+        $product->set_name($plan_name . ' - Suscripción');
+        $product->set_slug(sanitize_title('flow-subscription-' . $plan_id));
+        $product->set_sku('flow-subscription-' . $plan_id);
+
+        // Set product description
+        if (empty($description)) {
+            $description = "Suscripción del plan {$plan_name} procesada a través de Flow.";
+        }
+        $product->set_description($description);
+        $product->set_short_description("Plan de suscripción: {$plan_name}");
+
+        // Set pricing
+        $product->set_regular_price($amount);
+        $product->set_price($amount);
+
+        // Set product properties
+        $product->set_status('publish');
+        $product->set_catalog_visibility('hidden'); // Hide from catalog
+        $product->set_virtual(true); // Virtual product (no shipping)
+        $product->set_downloadable(false);
+        $product->set_sold_individually(true); // One per order
+
+        // Set stock management
+        $product->set_manage_stock(false);
+        $product->set_stock_status('instock');
+
+        // Set categories - create/find subscription category
+        $category_id = $this->get_or_create_subscription_category();
+        if ($category_id > 0) {
+            $product->set_category_ids([$category_id]);
+        }
+
+        // Add meta data for Flow integration
+        $product->add_meta_data('_flow_plan_id', $plan_id, true);
+        $product->add_meta_data('_flow_subscription_product', 'yes', true);
+        $product->add_meta_data('_flow_created_date', current_time('mysql'), true);
+
+        // Save product
+        $product_id = $product->save();
+
+        if ($product_id > 0) {
+            error_log("Created WooCommerce product ID: {$product_id} for Flow plan: {$plan_id}");
+        }
+
+        return $product_id;
+    }
+
+    /**
+     * Get or create subscription product category
+     */
+    private function get_or_create_subscription_category() {
+        $category_name = 'Suscripciones Flow';
+        $category_slug = 'flow-subscriptions';
+
+        // Check if category exists
+        $category = get_term_by('slug', $category_slug, 'product_cat');
+
+        if ($category) {
+            return $category->term_id;
+        }
+
+        // Create new category
+        $category_data = wp_insert_term(
+            $category_name,
+            'product_cat',
+            [
+                'slug' => $category_slug,
+                'description' => 'Productos de suscripción procesados a través de Flow'
+            ]
+        );
+
+        if (is_wp_error($category_data)) {
+            error_log('Failed to create subscription category: ' . $category_data->get_error_message());
+            return 0;
+        }
+
+        return $category_data['term_id'];
+    }
+
+    /**
+     * Update product information
+     */
+    public function update_subscription_product($product_id, $plan_name, $amount, $description = '') {
+        if (!$product_id || !class_exists('WC_Product')) {
+            return false;
+        }
+
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            return false;
+        }
+
+        // Update product information
+        $product->set_name($plan_name . ' - Suscripción');
+        $product->set_regular_price($amount);
+        $product->set_price($amount);
+
+        if (!empty($description)) {
+            $product->set_description($description);
+        }
+
+        $product->add_meta_data('_flow_updated_date', current_time('mysql'), true);
+
+        $result = $product->save();
+
+        if ($result > 0) {
+            error_log("Updated WooCommerce product ID: {$product_id} for plan: {$plan_name}");
+        }
+
+        return $result > 0;
+    }
+
+    /**
+     * Get subscription products
+     */
+    public function get_subscription_products() {
+        $products = wc_get_products([
+            'meta_key' => '_flow_subscription_product',
+            'meta_value' => 'yes',
+            'limit' => -1,
+            'status' => 'publish'
+        ]);
+
+        return $products;
+    }
+
+    /**
+     * Get product by Flow plan ID
+     */
+    public function get_product_by_plan_id($plan_id) {
+        $products = wc_get_products([
+            'meta_key' => '_flow_plan_id',
+            'meta_value' => $plan_id,
+            'limit' => 1,
+            'status' => 'publish'
+        ]);
+
+        return !empty($products) ? $products[0] : null;
+    }
+
+    /**
+     * Sync all subscription plans as WooCommerce products
+     */
+    public function sync_subscription_products() {
+        $subscription_db = new Flow_Database();
+        $subscriptions = $subscription_db->get_all_subscriptions();
+
+        $synced_products = [];
+        $existing_plans = [];
+
+        foreach ($subscriptions as $subscription) {
+            if (in_array($subscription->plan_id, $existing_plans)) {
+                continue; // Skip if already processed this plan
+            }
+
+            $product_id = $this->get_or_create_subscription_product(
+                $subscription->plan_id,
+                $subscription->plan_id,
+                $subscription->amount,
+                "Plan de suscripción {$subscription->plan_id}"
+            );
+
+            if ($product_id > 0) {
+                $synced_products[] = [
+                    'plan_id' => $subscription->plan_id,
+                    'product_id' => $product_id,
+                    'amount' => $subscription->amount
+                ];
+            }
+
+            $existing_plans[] = $subscription->plan_id;
+        }
+
+        return $synced_products;
+    }
+
+    /**
+     * Get subscription product statistics
+     */
+    public function get_subscription_product_stats() {
+        $products = $this->get_subscription_products();
+
+        $stats = [
+            'total_products' => count($products),
+            'total_orders' => 0,
+            'total_revenue' => 0,
+            'products' => []
+        ];
+
+        foreach ($products as $product) {
+            $plan_id = $product->get_meta('_flow_plan_id');
+
+            // Get orders for this product
+            $orders = wc_get_orders([
+                'meta_query' => [
+                    [
+                        'key' => '_flow_plan_id',
+                        'value' => $plan_id,
+                        'compare' => '='
+                    ]
+                ],
+                'limit' => -1,
+                'status' => ['processing', 'completed']
+            ]);
+
+            $product_revenue = 0;
+            foreach ($orders as $order) {
+                $product_revenue += $order->get_total();
+            }
+
+            $stats['products'][] = [
+                'product_id' => $product->get_id(),
+                'plan_id' => $plan_id,
+                'name' => $product->get_name(),
+                'price' => $product->get_price(),
+                'orders_count' => count($orders),
+                'revenue' => $product_revenue
+            ];
+
+            $stats['total_orders'] += count($orders);
+            $stats['total_revenue'] += $product_revenue;
+        }
+
+        return $stats;
+    }
+
+    /**
+     * Clean up orphaned subscription products
+     */
+    public function cleanup_orphaned_products() {
+        $products = $this->get_subscription_products();
+        $subscription_db = new Flow_Database();
+        $active_plan_ids = [];
+
+        // Get all active plan IDs from subscriptions
+        $subscriptions = $subscription_db->get_all_subscriptions();
+        foreach ($subscriptions as $subscription) {
+            $active_plan_ids[] = $subscription->plan_id;
+        }
+
+        $deleted_products = [];
+
+        foreach ($products as $product) {
+            $plan_id = $product->get_meta('_flow_plan_id');
+
+            // If product's plan ID is not in active subscriptions
+            if (!in_array($plan_id, $active_plan_ids)) {
+                // Check if product has any orders
+                $orders = wc_get_orders([
+                    'meta_query' => [
+                        [
+                            'key' => '_flow_plan_id',
+                            'value' => $plan_id,
+                            'compare' => '='
+                        ]
+                    ],
+                    'limit' => 1
+                ]);
+
+                // If no orders exist, safely delete the product
+                if (empty($orders)) {
+                    $product->delete(true); // Force delete
+                    $deleted_products[] = [
+                        'product_id' => $product->get_id(),
+                        'plan_id' => $plan_id,
+                        'name' => $product->get_name()
+                    ];
+                }
+            }
+        }
+
+        return $deleted_products;
+    }
+
+    /**
+     * Get or create WooCommerce customer
+     */
+    public function get_or_create_wc_customer($email, $name = '', $city = '') {
+        error_log("Flow Debug: Creating customer for email: {$email}, name: {$name}, city: {$city}");
+
+        if (!class_exists('WC_Customer')) {
+            error_log('Flow Debug: WC_Customer class not found');
+            return 0;
+        }
+
+        // Check if user already exists by email
+        $user = get_user_by('email', $email);
+
+        if ($user) {
+            return $user->ID;
+        }
+
+        // Parse name
+        $name_parts = explode(' ', trim($name), 2);
+        $first_name = $name_parts[0] ?? '';
+        $last_name = $name_parts[1] ?? '';
+
+        // Generate username from email
+        $username = sanitize_user(current(explode('@', $email)));
+
+        // Make sure username is unique
+        $original_username = $username;
+        $counter = 1;
+        while (username_exists($username)) {
+            $username = $original_username . $counter;
+            $counter++;
+        }
+
+        // Create new user/customer
+        $user_data = [
+            'user_login' => $username,
+            'user_email' => $email,
+            'user_pass' => wp_generate_password(),
+            'first_name' => $first_name,
+            'last_name' => $last_name,
+            'role' => 'customer'
+        ];
+
+        $user_id = wp_insert_user($user_data);
+
+        if (is_wp_error($user_id)) {
+            error_log('Failed to create WC customer: ' . $user_id->get_error_message());
+            return 0;
+        }
+
+        // Set customer billing details
+        if ($user_id > 0 && class_exists('WC_Customer')) {
+            $customer = new WC_Customer($user_id);
+            $customer->set_billing_first_name($first_name);
+            $customer->set_billing_last_name($last_name);
+            $customer->set_billing_email($email);
+            if ($city) {
+                $customer->set_billing_city($city);
+            }
+            $customer->save();
+
+            // Also create entry in lookup table for compatibility
+            $this->create_customer_lookup($name, $email, $city, $email);
+
+            error_log("Created new WooCommerce customer with ID: {$user_id} for email: {$email}");
+        }
+
+        return $user_id;
     }
 
     /**
      * Check if WooCommerce is active and table exists
      */
     public function is_woocommerce_available() {
+        error_log('Flow Debug: Checking WooCommerce availability');
+
         if (!class_exists('WooCommerce')) {
+            error_log('Flow Debug: WooCommerce class not found');
+            return false;
+        }
+
+        if (!class_exists('WC_Order')) {
+            error_log('Flow Debug: WC_Order class not found');
             return false;
         }
 
         global $wpdb;
         $table_name = $wpdb->prefix . 'wc_customer_lookup';
-        
-        return $wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name;
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name;
+
+        error_log("Flow Debug: WooCommerce available - Table exists: " . ($table_exists ? 'Yes' : 'No'));
+
+        return $table_exists;
+    }
+
+    /**
+     * Test method to manually create customer and order
+     */
+    public function test_create_customer_and_order($email = 'test@example.com', $name = 'Test User', $plan = 'test-plan', $amount = 1000) {
+        error_log("Flow Debug: TEST - Starting manual test creation");
+
+        if (!$this->is_woocommerce_available()) {
+            error_log("Flow Debug: TEST - WooCommerce not available");
+            return false;
+        }
+
+        // Test customer creation
+        $customer_id = $this->get_or_create_wc_customer($email, $name, 'Santiago');
+        error_log("Flow Debug: TEST - Customer creation result: {$customer_id}");
+
+        // Test order creation
+        $order_id = $this->create_subscription_order($email, $plan, $amount, $name, 'Santiago');
+        error_log("Flow Debug: TEST - Order creation result: {$order_id}");
+
+        return [
+            'customer_id' => $customer_id,
+            'order_id' => $order_id,
+            'success' => ($customer_id > 0 && $order_id > 0)
+        ];
     }
 }
