@@ -67,11 +67,38 @@ class Flow_Subscription {
         
         // Create plan in Flow
         $plan_result = $this->api->create_plan($clean_data['plan_id'], $clean_data['amount']);
-        
+
         if (!empty($plan_result['code'])) {
             // Delete subscription if plan creation fails
             $this->database->delete_subscription($subscription_id);
             return ['success' => false, 'message' => 'Error al crear plan en Flow: ' . $plan_result['message']];
+        }
+
+        // Create WooCommerce customer and product when subscription is created
+        error_log("Flow Debug: Starting WooCommerce integration for subscription creation");
+        $wc_integration = new Flow_WooCommerce();
+        if ($wc_integration->is_woocommerce_available()) {
+            error_log("Flow Debug: WooCommerce is available, proceeding with customer/product creation");
+            // Create customer
+            $customer_id = $wc_integration->get_or_create_wc_customer(
+                $clean_data['email'],
+                $clean_data['name'],
+                $clean_data['city']
+            );
+            if ($customer_id > 0) {
+                error_log("WooCommerce customer created/found with ID: {$customer_id} for subscription - Email: {$clean_data['email']}");
+            }
+
+            // Create product for this subscription plan
+            $product_id = $wc_integration->get_or_create_subscription_product(
+                $clean_data['plan_id'],
+                $clean_data['plan_id'],
+                $clean_data['amount'],
+                "Plan de suscripción {$clean_data['plan_id']} - {$clean_data['name']}"
+            );
+            if ($product_id > 0) {
+                error_log("WooCommerce product created/found with ID: {$product_id} for plan: {$clean_data['plan_id']}");
+            }
         }
         
         // Register credit card
@@ -170,12 +197,16 @@ class Flow_Subscription {
         }
 
         // Create WooCommerce order for successful payment
+        error_log("Flow Debug: Starting WooCommerce order creation for recurring payment");
         $wc_integration = new Flow_WooCommerce();
         if ($wc_integration->is_woocommerce_available()) {
+            error_log("Flow Debug: WooCommerce available for recurring payment order creation");
             $order_id = $wc_integration->create_subscription_order(
                 $subscription->email,
                 $subscription->plan_id,
-                $subscription->amount
+                $subscription->amount,
+                $subscription->name,
+                $subscription->city
             );
 
             if ($order_id) {
@@ -357,7 +388,9 @@ class Flow_Subscription {
                 $order_id = $wc_integration->create_subscription_order(
                     $subscription->email,
                     $subscription->plan_id,
-                    $subscription->amount
+                    $subscription->amount,
+                    $subscription->name,
+                    $subscription->city
                 );
 
                 if ($order_id) {

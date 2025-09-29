@@ -105,11 +105,17 @@ class Flow_Cron {
 
             // Create WooCommerce order if integration is active
             if ($this->get_wc_integration()->is_woocommerce_available()) {
-                $this->get_wc_integration()->create_subscription_order(
+                $order_id = $this->get_wc_integration()->create_subscription_order(
                     $subscription->email,
                     $subscription->plan_id,
-                    $subscription->amount
+                    $subscription->amount,
+                    $subscription->name,
+                    $subscription->city
                 );
+
+                if ($order_id) {
+                    error_log("WooCommerce order #{$order_id} created for cron payment - Email: {$subscription->email}");
+                }
             }
         }
     }
