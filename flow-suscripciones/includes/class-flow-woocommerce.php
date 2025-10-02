@@ -186,7 +186,7 @@ class Flow_WooCommerce {
     /**
      * Create WooCommerce customer and order for subscription
      */
-    public function create_subscription_order($email, $plan_name, $amount, $customer_name = '', $customer_city = '') {
+    public function create_subscription_order($email, $plan_name, $amount, $customer_name = '', $customer_city = '', $customer_address = '') {
         error_log("Flow Debug: Creating subscription order - Email: {$email}, Plan: {$plan_name}, Amount: {$amount}");
 
         if (!class_exists('WC_Order')) {
@@ -195,7 +195,7 @@ class Flow_WooCommerce {
         }
 
         // Get or create WooCommerce customer first
-        $customer_id = $this->get_or_create_wc_customer($email, $customer_name, $customer_city);
+        $customer_id = $this->get_or_create_wc_customer($email, $customer_name, $customer_city, $customer_address);
         error_log("Flow Debug: Customer ID obtained: {$customer_id}");
 
         // Create new order
@@ -224,6 +224,9 @@ class Flow_WooCommerce {
             $order->set_billing_first_name($name_parts[0] ?? '');
             $order->set_billing_last_name($name_parts[1] ?? '');
             $order->set_billing_city($customer_city);
+            if (!empty($customer_address)) {
+                $order->set_billing_address_1($customer_address);
+            }
         }
 
         // Get or create WooCommerce product for this subscription plan
@@ -600,8 +603,8 @@ class Flow_WooCommerce {
     /**
      * Get or create WooCommerce customer
      */
-    public function get_or_create_wc_customer($email, $name = '', $city = '') {
-        error_log("Flow Debug: Creating customer for email: {$email}, name: {$name}, city: {$city}");
+    public function get_or_create_wc_customer($email, $name = '', $city = '', $address = '') {
+        error_log("Flow Debug: Creating customer for email: {$email}, name: {$name}, city: {$city}, address: {$address}");
 
         if (!class_exists('WC_Customer')) {
             error_log('Flow Debug: WC_Customer class not found');
@@ -657,6 +660,9 @@ class Flow_WooCommerce {
             if ($city) {
                 $customer->set_billing_city($city);
             }
+            if ($address) {
+                $customer->set_billing_address_1($address);
+            }
             $customer->save();
 
             // Also create entry in lookup table for compatibility
@@ -705,11 +711,11 @@ class Flow_WooCommerce {
         }
 
         // Test customer creation
-        $customer_id = $this->get_or_create_wc_customer($email, $name, 'Santiago');
+        $customer_id = $this->get_or_create_wc_customer($email, $name, 'Santiago', 'Test Address 123');
         error_log("Flow Debug: TEST - Customer creation result: {$customer_id}");
 
         // Test order creation
-        $order_id = $this->create_subscription_order($email, $plan, $amount, $name, 'Santiago');
+        $order_id = $this->create_subscription_order($email, $plan, $amount, $name, 'Santiago', 'Test Address 123');
         error_log("Flow Debug: TEST - Order creation result: {$order_id}");
 
         return [

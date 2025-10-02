@@ -51,10 +51,10 @@ class Flow_Suscripciones {
         try {
             // Register autoloader
             Flow_Loader::register();
-            
+
             // Fallback manual loading
             Flow_Loader::load_classes();
-            
+
             // Verify all classes loaded successfully
             $missing_classes = Flow_Loader::verify_classes();
             if (!empty($missing_classes)) {
@@ -82,13 +82,13 @@ class Flow_Suscripciones {
     private function init_hooks() {
         // Activation hook
         register_activation_hook(__FILE__, [$this, 'activate_plugin']);
-        
+
         // Deactivation hook
         register_deactivation_hook(__FILE__, [$this, 'deactivate_plugin']);
-        
+
         // Initialize plugin on WordPress init
         add_action('init', [$this, 'init']);
-        
+
         // Load text domain for translations
         add_action('plugins_loaded', [$this, 'load_textdomain']);
     }
@@ -102,13 +102,13 @@ class Flow_Suscripciones {
             if (is_admin()) {
                 $this->admin = new Flow_Admin();
             }
-            
+
             // Initialize public shortcode
             $this->shortcode = new Flow_Shortcode();
-            
+
             // Initialize flow return handler
             new Flow_Activator();
-            
+
             // Initialize cron jobs
             $this->cron = new Flow_Cron();
         } catch (Exception $e) {

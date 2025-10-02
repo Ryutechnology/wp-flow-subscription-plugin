@@ -83,7 +83,8 @@ class Flow_Subscription {
             $customer_id = $wc_integration->get_or_create_wc_customer(
                 $clean_data['email'],
                 $clean_data['name'],
-                $clean_data['city']
+                $clean_data['city'],
+                $clean_data['address']
             );
             if ($customer_id > 0) {
                 error_log("WooCommerce customer created/found with ID: {$customer_id} for subscription - Email: {$clean_data['email']}");
@@ -206,7 +207,8 @@ class Flow_Subscription {
                 $subscription->plan_id,
                 $subscription->amount,
                 $subscription->name,
-                $subscription->city
+                $subscription->city,
+                $subscription->address
             );
 
             if ($order_id) {
@@ -390,7 +392,8 @@ class Flow_Subscription {
                     $subscription->plan_id,
                     $subscription->amount,
                     $subscription->name,
-                    $subscription->city
+                    $subscription->city,
+                    $subscription->address
                 );
 
                 if ($order_id) {
