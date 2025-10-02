@@ -84,8 +84,15 @@ class Flow_Activator {
             $result = $this->get_flow_api()->get_register_results($token);
 
             if (!empty($result['code'])) {
-                echo '<p class="error">Error al obtener resultados de registro: ' . esc_html($result['message']) . '</p>';
-                return;
+                // Redirect to failure page for Flow API errors
+                $failure_url = add_query_arg([
+                    'error' => 'Error al obtener resultados de Flow: ' . $result['message'],
+                    'error_code' => $result['code'],
+                    'plan' => $plan_id
+                ], home_url('/suscripcion-fallo/'));
+
+                wp_redirect($failure_url);
+                exit;
             }
 
             if ($result['status'] === '1') {
@@ -105,22 +112,43 @@ class Flow_Activator {
                 }
 
                 if (!$plan_info) {
-                    echo '<p class="error">No se encontró información de la suscripción. Customer ID: ' . esc_html($customer) . '</p>';
-                    echo '<p class="debug">Available sessions: ' . print_r($_SESSION ?? [], true) . '</p>';
-                    return;
+                    // Redirect to failure page for missing plan info
+                    $failure_url = add_query_arg([
+                        'error' => 'No se encontró información de la suscripción',
+                        'error_code' => 'missing_plan_info',
+                        'plan' => $plan_id
+                    ], home_url('/suscripcion-fallo/'));
+
+                    wp_redirect($failure_url);
+                    exit;
                 }
 
                 // Get plan
                 $plan = $this->get_flow_api()->create_plan($plan_id);
                 if (!empty($plan['code'])) {
-                    echo '<p class="error">Error al crear plan en Flow: ' . esc_html($plan['message']) . '</p>';
-                    return;
+                    // Redirect to failure page for plan creation errors
+                    $failure_url = add_query_arg([
+                        'error' => 'Error al crear plan en Flow: ' . $plan['message'],
+                        'error_code' => $plan['code'],
+                        'plan' => $plan_id
+                    ], home_url('/suscripcion-fallo/'));
+
+                    wp_redirect($failure_url);
+                    exit;
                 }
 
                 $subscription = $this->get_flow_api()->create_subscription($plan['planId'], $customer);
                 if (!empty($subscription['code'])) {
-                    echo '<p class="error">Error al crear suscripción en Flow: ' . esc_html($subscription['message']) . '</p>';
-                    return;
+                    // Redirect to failure page for subscription creation errors
+                    $failure_url = add_query_arg([
+                        'error' => 'Error al crear suscripción en Flow: ' . $subscription['message'],
+                        'error_code' => $subscription['code'],
+                        'plan' => $plan_id,
+                        'amount' => $plan_info['amount'] ?? ''
+                    ], home_url('/suscripcion-fallo/'));
+
+                    wp_redirect($failure_url);
+                    exit;
                 }
 
                 // Update subscription status in database
@@ -183,13 +211,29 @@ class Flow_Activator {
                 wp_redirect($success_url);
                 exit;
             } else {
-                echo '<p class="error">El registro no fue exitoso. Estado: ' . esc_html($result['status']) . '</p>';
+                // Redirect to failure page with error details
+                $failure_url = add_query_arg([
+                    'error' => 'El registro no fue exitoso',
+                    'error_code' => $result['status'] ?? 'unknown',
+                    'plan' => $subscription_data->plan_id ?? '',
+                    'amount' => $subscription_data->amount ?? ''
+                ], home_url('/suscripcion-fallo/'));
+
+                wp_redirect($failure_url);
+                exit;
             }
         } else {
-            echo '<h2>Retorno inválido.</h2>';
+            // Redirect to failure page for invalid return
+            $failure_url = add_query_arg([
+                'error' => 'Retorno inválido desde Flow',
+                'error_code' => 'invalid_return'
+            ], home_url('/suscripcion-fallo/'));
+
+            wp_redirect($failure_url);
+            exit;
         }
     }
-    
+
     private function get_plan_info_from_customer($customer_id) {
         global $wpdb;
         $table = $wpdb->prefix . 'flow_subscriptions';
@@ -289,7 +333,15 @@ class Flow_Activator {
         $params = $request->get_params();
 
         if (!isset($params['token'])) {
-            return new WP_REST_Response(['error' => 'Token required'], 400);
+            // Redirect to failure page for missing token
+            $failure_url = add_query_arg([
+                'error' => 'Token de autenticación no proporcionado',
+                'error_code' => 'missing_token'
+            ], home_url('/suscripcion-fallo/'));
+
+            return new WP_REST_Response([
+                'redirect' => $failure_url
+            ], 302);
         }
 
         $plan_id = sanitize_text_field($params['planId'] ?? '');
@@ -297,10 +349,15 @@ class Flow_Activator {
         $result = $this->get_flow_api()->get_register_results($token);
 
         if (!empty($result['code'])) {
-            return new WP_REST_Response([
-                'success' => false,
-                'message' => $result['message']
-            ], 400);
+            // Redirect to failure page for Flow API errors
+            $failure_url = add_query_arg([
+                'error' => 'Error al obtener resultados de Flow: ' . $result['message'],
+                'error_code' => $result['code'],
+                'plan' => $plan_id
+            ], home_url('/suscripcion-fallo/'));
+
+            wp_redirect($failure_url);
+            exit;
         }
 
         if ($result['status'] === '1') {
@@ -464,10 +521,16 @@ class Flow_Activator {
             exit;
 
         } else {
-            return new WP_REST_Response([
-                'success' => false,
-                'message' => 'El registro no fue exitoso. Estado: ' . $result['status']
-            ], 400);
+            // Redirect to failure page with error details
+            $failure_url = add_query_arg([
+                'error' => 'El registro no fue exitoso',
+                'error_code' => $result['status'] ?? 'unknown',
+                'plan' => $subscription_data->plan_id ?? '',
+                'amount' => $subscription_data->amount ?? ''
+            ], home_url('/suscripcion-fallo/'));
+
+            wp_redirect($failure_url);
+            exit;
         }
     }
 
