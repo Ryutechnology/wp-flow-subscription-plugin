@@ -333,13 +333,16 @@ class Flow_Subscription {
         switch ($webhook_data['type']) {
             case 'subscription_created':
                 return $this->handle_subscription_created_webhook($webhook_data);
-                
+
             case 'payment_completed':
                 return $this->handle_payment_completed_webhook($webhook_data);
-                
+
+            case 'payment_failed':
+                return $this->handle_payment_failed_webhook($webhook_data);
+
             case 'subscription_cancelled':
                 return $this->handle_subscription_cancelled_webhook($webhook_data);
-                
+
             default:
                 return ['success' => false, 'message' => 'Tipo de webhook no reconocido: ' . $webhook_data['type']];
         }
@@ -406,7 +409,53 @@ class Flow_Subscription {
 
         return ['success' => true, 'message' => 'Webhook de pago completado procesado'];
     }
-    
+
+    /**
+     * Handle payment failed webhook
+     */
+    private function handle_payment_failed_webhook($data) {
+        if (empty($data['subscription_id'])) {
+            return ['success' => false, 'message' => 'ID de suscripción no proporcionado'];
+        }
+
+        $subscription_id = sanitize_text_field($data['subscription_id']);
+        $subscription = $this->database->get_subscription_by_flow_id($subscription_id);
+
+        if (!$subscription) {
+            error_log("Payment failed webhook: Subscription not found for Flow ID: {$subscription_id}");
+            return ['success' => false, 'message' => 'Suscripción no encontrada'];
+        }
+
+        // Extract error information from webhook
+        $error_message = $data['error_message'] ?? 'Error en el procesamiento del pago';
+        $error_code = $data['error_code'] ?? 'payment_failed';
+
+        // Get current failed attempts
+        $failed_attempts = get_option("flow_failed_attempts_{$subscription->id}", 0);
+        $failed_attempts++;
+        update_option("flow_failed_attempts_{$subscription->id}", $failed_attempts);
+
+        // Send customer notification with failure page link
+        $this->send_webhook_payment_failure_notification($subscription, $error_message, $error_code, $failed_attempts);
+
+        // Mark subscription as failed after 3 attempts
+        if ($failed_attempts >= 3) {
+            $this->database->update_subscription($subscription->id, [
+                'status' => 'suspendido'
+            ]);
+
+            // Send final suspension notification
+            $this->send_subscription_suspension_notification($subscription);
+
+            // Clear failed attempts counter
+            delete_option("flow_failed_attempts_{$subscription->id}");
+        }
+
+        do_action('flow_payment_failed_webhook', $data, $subscription);
+
+        return ['success' => true, 'message' => 'Webhook de pago fallido procesado'];
+    }
+
     /**
      * Handle subscription cancelled webhook
      */
@@ -430,7 +479,106 @@ class Flow_Subscription {
         
         return ['success' => true, 'message' => 'Webhook de suscripción cancelada procesado'];
     }
-    
+
+    /**
+     * Send webhook payment failure notification to customer
+     */
+    private function send_webhook_payment_failure_notification($subscription, $error_message, $error_code, $failed_attempts) {
+        $customer_email = $subscription->email;
+        $subject = 'Error en el Pago de tu Suscripción - Pace Coffee Roasters';
+
+        // Generate failure page URL with details
+        $failure_url = add_query_arg([
+            'error' => 'Error en el pago de tu suscripción: ' . $error_message,
+            'error_code' => $error_code,
+            'plan' => $subscription->plan_id,
+            'amount' => $subscription->amount,
+            'retry_url' => home_url('/mi-cuenta/suscripciones/')
+        ], home_url('/suscripcion-fallo/'));
+
+        $message = sprintf(
+            "Hola %s,\n\n" .
+            "Hemos tenido problemas para procesar el pago de tu suscripción:\n\n" .
+            "Plan: %s\n" .
+            "Monto: $%s CLP\n" .
+            "Error: %s\n" .
+            "Intento: %d/3\n\n" .
+            "Por favor, actualiza tu información de pago visitando:\n%s\n\n" .
+            "Si necesitas ayuda, responde a este correo o contacta con soporte.\n\n" .
+            "Gracias,\n" .
+            "Equipo de Pace Coffee Roasters",
+            $subscription->name,
+            $subscription->plan_id,
+            number_format($subscription->amount),
+            $error_message,
+            $failed_attempts,
+            $failure_url
+        );
+
+        // Send email to customer
+        wp_mail($customer_email, $subject, $message);
+
+        // Log notification sent
+        error_log("Webhook payment failure notification sent to {$customer_email} for subscription {$subscription->id}");
+    }
+
+    /**
+     * Send subscription suspension notification
+     */
+    private function send_subscription_suspension_notification($subscription) {
+        $customer_email = $subscription->email;
+        $admin_email = get_option('admin_email');
+        $subject = 'Suscripción Suspendida - Pace Coffee Roasters';
+
+        // Generate failure page URL for customer
+        $failure_url = add_query_arg([
+            'error' => 'Tu suscripción ha sido suspendida debido a múltiples fallas en el pago',
+            'error_code' => 'subscription_suspended',
+            'plan' => $subscription->plan_id,
+            'amount' => $subscription->amount,
+            'retry_url' => home_url('/contacto/')
+        ], home_url('/suscripcion-fallo/'));
+
+        // Customer message
+        $customer_message = sprintf(
+            "Hola %s,\n\n" .
+            "Lamentamos informarte que tu suscripción ha sido suspendida debido a múltiples fallas en el procesamiento del pago.\n\n" .
+            "Plan: %s\n" .
+            "Monto: $%s CLP\n\n" .
+            "Para reactivar tu suscripción, por favor contacta con nuestro equipo de soporte:\n%s\n\n" .
+            "Estamos aquí para ayudarte a resolver cualquier problema.\n\n" .
+            "Gracias,\n" .
+            "Equipo de Pace Coffee Roasters",
+            $subscription->name,
+            $subscription->plan_id,
+            number_format($subscription->amount),
+            $failure_url
+        );
+
+        // Admin message
+        $admin_message = sprintf(
+            "Suscripción suspendida:\n\n" .
+            "ID: %d\n" .
+            "Cliente: %s (%s)\n" .
+            "Plan: %s\n" .
+            "Monto: $%s CLP\n" .
+            "Motivo: Múltiples fallas en el pago\n\n" .
+            "Se requiere intervención manual para reactivar.",
+            $subscription->id,
+            $subscription->name,
+            $subscription->email,
+            $subscription->plan_id,
+            number_format($subscription->amount)
+        );
+
+        // Send emails
+        wp_mail($customer_email, $subject, $customer_message);
+        wp_mail($admin_email, 'Suscripción Suspendida - Flow Suscripciones', $admin_message);
+
+        // Log notifications sent
+        error_log("Suspension notifications sent for subscription {$subscription->id}");
+    }
+
     /**
      * Get Flow API instance
      */

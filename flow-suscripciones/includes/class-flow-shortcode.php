@@ -10,6 +10,7 @@ class Flow_Shortcode {
     public function __construct() {
         add_shortcode('flow_suscripcion', [$this, 'render_subscription_form']);
         add_shortcode('flow_success', [$this, 'render_success_page']);
+        add_shortcode('flow_failure', [$this, 'render_failure_page']);
     }
 
     /**
@@ -230,15 +231,29 @@ class Flow_Shortcode {
         $subscription_id = $this->get_flow_db()->insert_subscription($subscription_data);
 
         if (!$subscription_id) {
-            echo '<p class="error">Error al guardar la suscripción.</p>';
-            return;
+            $failure_url = add_query_arg([
+                'error' => 'Error al guardar la suscripción en la base de datos',
+                'error_code' => 'db_save_failed',
+                'plan' => $attributes['plan'],
+                'amount' => $attributes['amount']
+            ], home_url('/suscripcion-fallo/'));
+
+            wp_redirect($failure_url);
+            exit;
         }
 
         // Create customer in Flow
         $customer = $this->get_flow_api()->create_customer($email, $name, $address, $city);
         if (!empty($customer['code'])) {
-            echo '<p class="error">Error al crear cliente en Flow: ' . esc_html($customer['message']) . '</p>';
-            return;
+            $failure_url = add_query_arg([
+                'error' => 'Error al crear cliente en Flow: ' . $customer['message'],
+                'error_code' => $customer['code'] ?? 'customer_creation_failed',
+                'plan' => $attributes['plan'],
+                'amount' => $attributes['amount']
+            ], home_url('/suscripcion-fallo/'));
+
+            wp_redirect($failure_url);
+            exit;
         }
 
         // Store plan info in session before redirecting to Flow
@@ -255,16 +270,30 @@ class Flow_Shortcode {
 
         $plan = $this->get_flow_api()->create_plan($_SESSION['flow_plan_info']['plan'], $_SESSION['flow_plan_info']['amount']);
         if (!empty($plan['code'])) {
-            echo '<p class="error">Error al crear plan en Flow: ' . esc_html($plan['message']) . '</p>';
-            return;
+            $failure_url = add_query_arg([
+                'error' => 'Error al crear plan en Flow: ' . $plan['message'],
+                'error_code' => $plan['code'] ?? 'plan_creation_failed',
+                'plan' => $_SESSION['flow_plan_info']['plan'],
+                'amount' => $_SESSION['flow_plan_info']['amount']
+            ], home_url('/suscripcion-fallo/'));
+
+            wp_redirect($failure_url);
+            exit;
         }
 
         // Create credit card registration URL
         $url_return = rest_url('/flow/v1/return?planId='.$plan['planId']);
         $card_registration = $this->get_flow_api()->register_credit_card($customer['customerId'], $url_return);
         if (!empty($card_registration['code'])) {
-            echo '<p class="error">Error al registrar tarjeta en Flow: ' . esc_html($card_registration['message']) . '</p>';
-            return;
+            $failure_url = add_query_arg([
+                'error' => 'Error al registrar tarjeta en Flow: ' . $card_registration['message'],
+                'error_code' => $card_registration['code'] ?? 'card_registration_failed',
+                'plan' => $_SESSION['flow_plan_info']['plan'],
+                'amount' => $_SESSION['flow_plan_info']['amount']
+            ], home_url('/suscripcion-fallo/'));
+
+            wp_redirect($failure_url);
+            exit;
         }
         if (!empty($card_registration['url'])) {
             $base_url = $card_registration['url'];
@@ -292,6 +321,75 @@ class Flow_Shortcode {
         echo '<p>¡Suscripción creada exitosamente!</p>';
         echo '<p>Plan: ' . esc_html($attributes['plan']) . '</p>';
         echo '<p>Monto: $' . esc_html(number_format($attributes['amount'])) . ' CLP</p>';
+        echo '</div>';
+    }
+
+    /**
+     * Render failure page
+     */
+    public function render_failure_page($attributes = []) {
+        // Get parameters from URL first, then merge with shortcode attributes
+        $url_params = [
+            'error' => sanitize_text_field($_GET['error'] ?? ''),
+            'plan' => sanitize_text_field($_GET['plan'] ?? ''),
+            'amount' => sanitize_text_field($_GET['amount'] ?? ''),
+            'error_code' => sanitize_text_field($_GET['error_code'] ?? ''),
+            'retry_url' => esc_url_raw($_GET['retry_url'] ?? '')
+        ];
+
+        $attributes = shortcode_atts([
+            'error' => 'Ha ocurrido un error durante el procesamiento',
+            'plan' => '',
+            'amount' => '',
+            'error_code' => '',
+            'retry_url' => ''
+        ], array_merge($attributes, array_filter($url_params)));
+
+        echo '<div class="flow-failure">';
+        echo '<div class="failure-icon">❌</div>';
+        echo '<h2>Error en la Suscripción</h2>';
+        echo '<p class="error-message">' . esc_html($attributes['error']) . '</p>';
+
+        if (!empty($attributes['error_code'])) {
+            echo '<p class="error-code">Código de error: ' . esc_html($attributes['error_code']) . '</p>';
+        }
+
+        if (!empty($attributes['plan'])) {
+            echo '<p class="plan-info">Plan: ' . esc_html($attributes['plan']) . '</p>';
+        }
+
+        if (!empty($attributes['amount'])) {
+            echo '<p class="amount-info">Monto: $' . esc_html(number_format($attributes['amount'])) . ' CLP</p>';
+        }
+
+        echo '<div class="failure-actions">';
+
+        if (!empty($attributes['retry_url'])) {
+            echo '<a href="' . esc_url($attributes['retry_url']) . '" class="btn-retry">Intentar nuevamente</a>';
+        } else {
+            // Default retry URL - look for common subscription page URLs
+            $retry_urls = [
+                home_url('/suscripciones/'),
+                home_url('/subscription/'),
+                home_url('/suscripcion/'),
+                home_url('/')
+            ];
+
+            $retry_url = home_url('/');
+            foreach ($retry_urls as $url) {
+                $page_id = url_to_postid($url);
+                if ($page_id > 0) {
+                    $retry_url = $url;
+                    break;
+                }
+            }
+
+            echo '<a href="' . esc_url($retry_url) . '" class="btn-retry">Intentar nuevamente</a>';
+        }
+
+        echo '<a href="' . esc_url(home_url()) . '" class="btn-home">Volver al inicio</a>';
+        echo '<a href="mailto:soporte@pacecoffee.com" class="btn-support">Contactar soporte</a>';
+        echo '</div>';
         echo '</div>';
     }
 
@@ -408,6 +506,117 @@ class Flow_Shortcode {
             padding: 15px;
             border-radius: 3px;
             border-left: 4px solid #00a32a;
+        }
+
+        .flow-failure {
+            background: #fff2f2;
+            border: 1px solid #dc3232;
+            border-left: 4px solid #dc3232;
+            border-radius: 5px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+            max-width: 600px;
+            margin: 20px auto;
+        }
+
+        .flow-failure .failure-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .flow-failure h2 {
+            color: #dc3232;
+            margin: 15px 0;
+            font-size: 24px;
+        }
+
+        .flow-failure .error-message {
+            color: #721c24;
+            font-size: 16px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+
+        .flow-failure .error-code {
+            color: #666;
+            font-size: 14px;
+            margin: 10px 0;
+            font-family: monospace;
+            background: #f5f5f5;
+            padding: 5px 10px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+
+        .flow-failure .plan-info,
+        .flow-failure .amount-info {
+            color: #555;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+
+        .flow-failure .failure-actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .flow-failure .btn-retry,
+        .flow-failure .btn-home,
+        .flow-failure .btn-support {
+            display: inline-block;
+            padding: 12px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: 500;
+            transition: background-color 0.3s ease;
+        }
+
+        .flow-failure .btn-retry {
+            background: #0073aa;
+            color: white;
+        }
+
+        .flow-failure .btn-retry:hover {
+            background: #005a87;
+            color: white;
+        }
+
+        .flow-failure .btn-home {
+            background: #666;
+            color: white;
+        }
+
+        .flow-failure .btn-home:hover {
+            background: #555;
+            color: white;
+        }
+
+        .flow-failure .btn-support {
+            background: #f0ad4e;
+            color: white;
+        }
+
+        .flow-failure .btn-support:hover {
+            background: #ec971f;
+            color: white;
+        }
+
+        @media (max-width: 600px) {
+            .flow-failure .failure-actions {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .flow-failure .btn-retry,
+            .flow-failure .btn-home,
+            .flow-failure .btn-support {
+                width: 200px;
+                text-align: center;
+            }
         }
         </style>
         <?php

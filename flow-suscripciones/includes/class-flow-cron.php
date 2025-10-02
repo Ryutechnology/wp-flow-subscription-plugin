@@ -182,18 +182,67 @@ class Flow_Cron {
         // Update failed attempts count
         update_option("flow_failed_attempts_{$subscription->id}", $failed_attempts);
 
+        // Send customer notification about payment failure
+        $this->send_payment_failure_notification($subscription, $result, $failed_attempts);
+
         // After 3 failed attempts, mark as suspended
         if ($failed_attempts >= 3) {
             $this->get_flow_db()->update_subscription($subscription->id, [
                 'status' => 'suspendido'
             ]);
 
-            // Send notification email to admin
+            // Send suspension notification to admin and customer
             $this->send_suspension_notification($subscription);
-            
+
             // Clear failed attempts counter
             delete_option("flow_failed_attempts_{$subscription->id}");
         }
+    }
+
+    /**
+     * Send payment failure notification to customer
+     */
+    private function send_payment_failure_notification($subscription, $result, $failed_attempts) {
+        $customer_email = $subscription->email;
+        $subject = 'Error en el Pago de tu Suscripción - Pace Coffee Roasters';
+
+        $error_message = $result['message'] ?? 'Error desconocido';
+        $error_code = $result['code'] ?? 'unknown';
+
+        // Generate failure page URL with details
+        $failure_url = add_query_arg([
+            'error' => 'Error en el pago de tu suscripción: ' . $error_message,
+            'error_code' => $error_code,
+            'plan' => $subscription->plan_id,
+            'amount' => $subscription->amount,
+            'retry_url' => home_url('/mi-cuenta/suscripciones/')
+        ], home_url('/suscripcion-fallo/'));
+
+        $message = sprintf(
+            "Hola %s,\n\n" .
+            "Hemos tenido problemas para procesar el pago de tu suscripción:\n\n" .
+            "Plan: %s\n" .
+            "Monto: $%s CLP\n" .
+            "Error: %s\n" .
+            "Intento: %d/3\n\n" .
+            "Por favor, actualiza tu información de pago o contacta con nuestro equipo de soporte.\n\n" .
+            "Puedes revisar el estado de tu suscripción en: %s\n\n" .
+            "Si necesitas ayuda, responde a este correo o contacta con soporte.\n\n" .
+            "Gracias,\n" .
+            "Equipo de Pace Coffee Roasters",
+            $subscription->name,
+            $subscription->plan_id,
+            number_format($subscription->amount),
+            $error_message,
+            $failed_attempts,
+            $failure_url
+        );
+
+        // Send email to customer
+        wp_mail($customer_email, $subject, $message);
+
+        // Log notification sent
+        error_log("Payment failure notification sent to {$customer_email} for subscription {$subscription->id}");
     }
 
     /**
