@@ -110,7 +110,8 @@ class Flow_Cron {
                     $subscription->plan_id,
                     $subscription->amount,
                     $subscription->name,
-                    $subscription->city
+                    $subscription->city,
+                    $subscription->address
                 );
 
                 if ($order_id) {

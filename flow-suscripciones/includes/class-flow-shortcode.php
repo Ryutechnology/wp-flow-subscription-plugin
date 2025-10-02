@@ -43,20 +43,154 @@ class Flow_Shortcode {
     }
 
     /**
+     * Get current product data if on a product page
+     */
+    private function get_current_product_data() {
+        global $product, $post;
+
+        $product_data = [
+            'plan' => null,
+            'amount' => null,
+            'product_id' => null
+        ];
+
+        // Check if WooCommerce is active
+        if (!function_exists('wc_get_product')) {
+            return $product_data;
+        }
+
+        // Try to get product from global $product first
+        if (!$product && is_product()) {
+            $product = wc_get_product(get_the_ID());
+        }
+
+        // If still no product, try from URL parameter or post ID
+        if (!$product) {
+            $product_id = null;
+
+            // Check URL parameter
+            if (isset($_GET['product_id'])) {
+                $product_id = intval($_GET['product_id']);
+            }
+            // Check if we're on a product page
+            elseif (is_product() && $post) {
+                $product_id = $post->ID;
+            }
+            // Check for add-to-cart parameter
+            elseif (isset($_GET['add-to-cart'])) {
+                $product_id = intval($_GET['add-to-cart']);
+            }
+
+            if ($product_id) {
+                $product = wc_get_product($product_id);
+            }
+        }
+
+        // If we have a product, extract subscription data
+        if ($product && is_a($product, 'WC_Product')) {
+            $product_data['product_id'] = $product->get_id();
+
+            // Use product name as plan name
+            $product_data['plan'] = $product->get_name();
+
+            // Get product price (convert to integer for Flow API)
+            $price = $product->get_price();
+            if ($price) {
+                $product_data['amount'] = intval(floatval($price));
+            }
+
+            // Check for subscription-specific meta fields
+            $subscription_plan = get_post_meta($product->get_id(), '_flow_subscription_plan', true);
+            if ($subscription_plan) {
+                $product_data['plan'] = $subscription_plan;
+            }
+
+            $subscription_amount = get_post_meta($product->get_id(), '_flow_subscription_amount', true);
+            if ($subscription_amount) {
+                $product_data['amount'] = intval($subscription_amount);
+            }
+        }
+
+        return $product_data;
+    }
+
+    /**
+     * Get product data by specific product ID
+     */
+    private function get_product_data_by_id($product_id) {
+        $product_data = [
+            'plan' => null,
+            'amount' => null,
+            'product_id' => null
+        ];
+
+        // Check if WooCommerce is active
+        if (!function_exists('wc_get_product')) {
+            return $product_data;
+        }
+
+        $product = wc_get_product($product_id);
+
+        if ($product && is_a($product, 'WC_Product')) {
+            $product_data['product_id'] = $product->get_id();
+
+            // Use product name as plan name
+            $product_data['plan'] = $product->get_name();
+
+            // Get product price (convert to integer for Flow API)
+            $price = $product->get_price();
+            if ($price) {
+                $product_data['amount'] = intval(floatval($price));
+            }
+
+            // Check for subscription-specific meta fields
+            $subscription_plan = get_post_meta($product->get_id(), '_flow_subscription_plan', true);
+            if ($subscription_plan) {
+                $product_data['plan'] = $subscription_plan;
+            }
+
+            $subscription_amount = get_post_meta($product->get_id(), '_flow_subscription_amount', true);
+            if ($subscription_amount) {
+                $product_data['amount'] = intval($subscription_amount);
+            }
+        }
+
+        return $product_data;
+    }
+
+    /**
      * Render subscription form shortcode
      */
     public function render_subscription_form($atts) {
+        // Get product information if on a product page
+        $product_data = $this->get_current_product_data();
+
         $attributes = shortcode_atts([
-            'plan' => 'Plan Básico',
-            'amount' => 5000
+            'plan' => $product_data['plan'] ?? 'Plan Básico',
+            'amount' => $product_data['amount'] ?? 5000,
+            'product_id' => $product_data['product_id'] ?? null
         ], $atts);
+
+        // If product_id is passed as parameter but no product was auto-detected, try to get product data
+        if (!empty($attributes['product_id']) && empty($product_data['product_id'])) {
+            $manual_product_data = $this->get_product_data_by_id($attributes['product_id']);
+            if ($manual_product_data['product_id']) {
+                // Override with manual product data if no plan/amount specified in shortcode
+                if (!isset($atts['plan']) && $manual_product_data['plan']) {
+                    $attributes['plan'] = $manual_product_data['plan'];
+                }
+                if (!isset($atts['amount']) && $manual_product_data['amount']) {
+                    $attributes['amount'] = $manual_product_data['amount'];
+                }
+            }
+        }
 
         ob_start();
 
         if ($_POST && isset($_POST['flow_email'])) {
             $this->process_subscription_form($attributes);
         } else {
-            $this->display_subscription_form($attributes);
+            $this->display_subscription_form($attributes, $product_data);
         }
 
         return ob_get_clean();
@@ -78,14 +212,22 @@ class Flow_Shortcode {
         $city = sanitize_text_field($_POST['flow_city']);
 
         // Insert subscription into database
-        $subscription_id = $this->get_flow_db()->insert_subscription([
+        $subscription_data = [
             'email' => $email,
             'name' => $name,
             'address' => $address,
             'city' => $city,
             'plan_id' => sanitize_title($attributes['plan']),
             'amount' => intval($attributes['amount'])
-        ]);
+        ];
+
+        // Add product ID if available (from form or attributes)
+        $product_id = !empty($_POST['flow_product_id']) ? intval($_POST['flow_product_id']) : $attributes['product_id'];
+        if (!empty($product_id)) {
+            $subscription_data['product_id'] = intval($product_id);
+        }
+
+        $subscription_id = $this->get_flow_db()->insert_subscription($subscription_data);
 
         if (!$subscription_id) {
             echo '<p class="error">Error al guardar la suscripción.</p>';
@@ -156,42 +298,46 @@ class Flow_Shortcode {
     /**
      * Display subscription form
      */
-    private function display_subscription_form($attributes) {
+    private function display_subscription_form($attributes, $product_data = []) {
         ?>
         <div class="flow-subscription-form">
             <h3>Suscríbete al <?php echo esc_html($attributes['plan']); ?></h3>
-            <p class="plan-amount">Monto: $<?php echo esc_html(number_format($attributes['amount'])); ?> CLP mensual</p>
-            
+            <p class="plan-amount">$<?php echo esc_html(number_format($attributes['amount'])); ?> CLP mensual</p>
+
+            <?php if (!empty($attributes['product_id'])):
+                $is_auto_detected = !empty($product_data['product_id']);
+            ?>
+            <?php endif; ?>
+
             <form method="post" class="flow-form">
                 <?php wp_nonce_field('flow_form', 'flow_nonce'); ?>
-                
+
                 <div class="form-group">
                     <label for="flow_name">Nombre completo *</label>
                     <input type="text" name="flow_name" id="flow_name" placeholder="Tu nombre completo" required>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="flow_email">Email *</label>
                     <input type="email" name="flow_email" id="flow_email" placeholder="tu@email.com" required>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="flow_address">Dirección *</label>
                     <input type="text" name="flow_address" id="flow_address" placeholder="Tu dirección completa" required>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="flow_city">Ciudad *</label>
                     <input type="text" name="flow_city" id="flow_city" placeholder="Tu ciudad" required>
                 </div>
-                
+
                 <button type="submit" class="flow-submit-btn">
-                    Suscribirme al <?php echo esc_html($attributes['plan']); ?> 
-                    ($<?php echo esc_html(number_format($attributes['amount'])); ?> CLP)
+                    Suscribirme
                 </button>
             </form>
         </div>
-        
+
         <style>
         .flow-subscription-form {
             max-width: 500px;
@@ -231,6 +377,25 @@ class Flow_Shortcode {
             color: #0073aa;
             font-weight: bold;
         }
+        .product-info {
+            background: #e8f5e8;
+            border: 1px solid #4caf50;
+            border-radius: 3px;
+            padding: 10px;
+            margin: 15px 0;
+        }
+        .detected-product {
+            margin: 0;
+            color: #2e7d32;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .manual-product {
+            margin: 0;
+            color: #1976d2;
+            font-weight: bold;
+            font-size: 14px;
+        }
         .error {
             color: #d63638;
             background: #fcf0f1;
@@ -257,7 +422,7 @@ class Flow_Shortcode {
             'plan' => '',
             'amount' => '',
             'email' => '',
-            'name' => ''
+            'client_name' => ''
         ], $atts);
 
         // Get subscription details from URL parameters or attributes
@@ -265,7 +430,7 @@ class Flow_Shortcode {
         $plan = isset($_GET['plan']) ? sanitize_text_field($_GET['plan']) : $attributes['plan'];
         $amount = isset($_GET['amount']) ? intval($_GET['amount']) : $attributes['amount'];
         $email = isset($_GET['email']) ? sanitize_email($_GET['email']) : $attributes['email'];
-        $name = isset($_GET['name']) ? sanitize_text_field($_GET['name']) : $attributes['name'];
+        $name = isset($_GET['client_name']) ? sanitize_text_field($_GET['client_name']) : sanitize_text_field($attributes['client_name']);
 
         // If we have a subscription ID, get details from database
         if ($subscription_id > 0) {
@@ -344,9 +509,6 @@ class Flow_Shortcode {
             <div class="action-buttons">
                 <a href="<?php echo esc_url(home_url()); ?>" class="btn btn-primary">
                     Volver al inicio
-                </a>
-                <a href="<?php echo esc_url(home_url('/mi-cuenta')); ?>" class="btn btn-secondary">
-                    Ver mi cuenta
                 </a>
             </div>
         </div>

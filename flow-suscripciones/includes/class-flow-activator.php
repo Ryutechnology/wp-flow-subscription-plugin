@@ -23,6 +23,7 @@ class Flow_Activator {
             amount INT NOT NULL,
             status VARCHAR(20) DEFAULT 'pendiente',
             flow_customer_id VARCHAR(100) DEFAULT NULL,
+            product_id INT DEFAULT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         ) $charset;";
 
@@ -147,7 +148,8 @@ class Flow_Activator {
                         $customer_id = $wc_integration->get_or_create_wc_customer(
                             $subscription_data->email,
                             $subscription_data->name,
-                            $subscription_data->city
+                            $subscription_data->city,
+                            $subscription_data->address
                         );
                         if ($customer_id > 0) {
                             error_log("WooCommerce customer created for successful subscription - Email: {$subscription_data->email}");
@@ -159,7 +161,8 @@ class Flow_Activator {
                             $subscription_data->plan_id,
                             $subscription_data->amount,
                             $subscription_data->name,
-                            $subscription_data->city
+                            $subscription_data->city,
+                            $subscription_data->address
                         );
                         if ($order_id) {
                             error_log("WooCommerce order #{$order_id} created for successful subscription - Email: {$subscription_data->email}");
@@ -174,7 +177,7 @@ class Flow_Activator {
                     'plan' => $plan_info['plan'],
                     'amount' => $plan_info['amount'],
                     'email' => $subscription_data->email ?? '',
-                    'name' => $subscription_data->name ?? ''
+                    'client_name' => $subscription_data->name ?? ''
                 ], home_url('/suscripcion-exitosa/'));
 
                 wp_redirect($success_url);
@@ -424,7 +427,8 @@ class Flow_Activator {
                     $customer_id = $wc_integration->get_or_create_wc_customer(
                         $subscription_data->email,
                         $subscription_data->name,
-                        $subscription_data->city
+                        $subscription_data->city,
+                        $subscription_data->address
                     );
                     if ($customer_id > 0) {
                         error_log("WooCommerce customer created for successful subscription - Email: {$subscription_data->email}");
@@ -436,7 +440,8 @@ class Flow_Activator {
                         $subscription_data->plan_id,
                         $subscription_data->amount,
                         $subscription_data->name,
-                        $subscription_data->city
+                        $subscription_data->city,
+                        $subscription_data->address
                     );
                     if ($order_id) {
                         error_log("WooCommerce order #{$order_id} created for successful subscription - Email: {$subscription_data->email}");
@@ -451,7 +456,7 @@ class Flow_Activator {
                 'plan' => $plan_info['plan'],
                 'amount' => $plan_info['amount'],
                 'email' => $subscription_data->email ?? '',
-                'name' => $subscription_data->name ?? ''
+                'client_name' => $subscription_data->name ?? ''
             ], home_url('/suscripcion-exitosa/'));
 
             status_header(302);
