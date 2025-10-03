@@ -217,13 +217,14 @@ class Flow_WooCommerce {
             $order->set_billing_city($wc_customer->get_billing_city());
             $order->set_billing_address_1($wc_customer->get_billing_address_1());
             $order->set_billing_state($wc_customer->get_billing_state());
-            $order->set_billing_country($wc_customer->get_billing_country());
+            $order->set_billing_country('CL');
         } else {
             // Fallback to provided data for guest customers
             $name_parts = explode(' ', $customer_name, 2);
             $order->set_billing_first_name($name_parts[0] ?? '');
             $order->set_billing_last_name($name_parts[1] ?? '');
             $order->set_billing_city($customer_city);
+            $order->set_billing_country('CL');
             if (!empty($customer_address)) {
                 $order->set_billing_address_1($customer_address);
             }
@@ -662,6 +663,7 @@ class Flow_WooCommerce {
             $customer->set_billing_first_name($first_name);
             $customer->set_billing_last_name($last_name);
             $customer->set_billing_email($email);
+            $customer->set_billing_country('CL');
             if ($city) {
                 $customer->set_billing_city($city);
             }
