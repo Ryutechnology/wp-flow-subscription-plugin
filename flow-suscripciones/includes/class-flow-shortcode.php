@@ -52,7 +52,10 @@ class Flow_Shortcode {
         $product_data = [
             'plan' => null,
             'amount' => null,
-            'product_id' => null
+            'product_id' => null,
+            'variation_id' => null,
+            'formato' => null,
+            'molienda' => null
         ];
 
         // Check if WooCommerce is active
@@ -68,10 +71,15 @@ class Flow_Shortcode {
         // If still no product, try from URL parameter or post ID
         if (!$product) {
             $product_id = null;
+            $variation_id = null;
 
             // Check URL parameter
             if (isset($_GET['product_id'])) {
                 $product_id = intval($_GET['product_id']);
+            }
+            // Check for variation ID
+            if (isset($_GET['variation_id'])) {
+                $variation_id = intval($_GET['variation_id']);
             }
             // Check if we're on a product page
             elseif (is_product() && $post) {
@@ -82,33 +90,69 @@ class Flow_Shortcode {
                 $product_id = intval($_GET['add-to-cart']);
             }
 
-            if ($product_id) {
+            if ($variation_id) {
+                $product = wc_get_product($variation_id);
+                if ($product && $product->is_type('variation')) {
+                    $product_data['variation_id'] = $variation_id;
+                    $product_data['product_id'] = $product->get_parent_id();
+                } else {
+                    $product = null; // Invalid variation, reset
+                }
+            } elseif ($product_id) {
                 $product = wc_get_product($product_id);
             }
         }
 
         // If we have a product, extract subscription data
         if ($product && is_a($product, 'WC_Product')) {
-            $product_data['product_id'] = $product->get_id();
+            // Handle product vs variation
+            if ($product->is_type('variation')) {
+                $product_data['variation_id'] = $product->get_id();
+                $product_data['product_id'] = $product->get_parent_id();
 
-            // Use product name as plan name
+                // Extract variation attributes (formato, molienda)
+                $variation_attributes = $product->get_variation_attributes();
+
+                // Look for formato attribute (could be various attribute names)
+                foreach (['pa_formato', 'formato', 'attribute_pa_formato'] as $formato_key) {
+                    if (isset($variation_attributes[$formato_key])) {
+                        $product_data['formato'] = $variation_attributes[$formato_key];
+                        break;
+                    }
+                }
+
+                // Look for molienda attribute
+                foreach (['pa_molienda', 'molienda', 'attribute_pa_molienda'] as $molienda_key) {
+                    if (isset($variation_attributes[$molienda_key])) {
+                        $product_data['molienda'] = $variation_attributes[$molienda_key];
+                        break;
+                    }
+                }
+            } else {
+                $product_data['product_id'] = $product->get_id();
+            }
+
+            // Use product name as plan name (for variations, this includes variation info)
             $product_data['plan'] = $product->get_name();
 
-            // Get product price (convert to integer for Flow API)
+            // Get price from the current product (variation price if it's a variation, otherwise base product price)
             $price = $product->get_price();
             if ($price) {
                 $product_data['amount'] = intval(floatval($price));
+                error_log("Flow Debug: Using price from " . ($product->is_type('variation') ? 'variation' : 'product') . ": {$price}");
             }
 
             // Check for subscription-specific meta fields
-            $subscription_plan = get_post_meta($product->get_id(), '_flow_subscription_plan', true);
+            $meta_id = $product_data['variation_id'] ?? $product_data['product_id'];
+            $subscription_plan = get_post_meta($meta_id, '_flow_subscription_plan', true);
             if ($subscription_plan) {
                 $product_data['plan'] = $subscription_plan;
             }
 
-            $subscription_amount = get_post_meta($product->get_id(), '_flow_subscription_amount', true);
+            $subscription_amount = get_post_meta($meta_id, '_flow_subscription_amount', true);
             if ($subscription_amount) {
                 $product_data['amount'] = intval($subscription_amount);
+                error_log("Flow Debug: Overriding with subscription amount from meta: {$subscription_amount}");
             }
         }
 
@@ -116,13 +160,16 @@ class Flow_Shortcode {
     }
 
     /**
-     * Get product data by specific product ID
+     * Get product data by specific product ID or variation ID
      */
-    private function get_product_data_by_id($product_id) {
+    private function get_product_data_by_id($product_id, $variation_id = null) {
         $product_data = [
             'plan' => null,
             'amount' => null,
-            'product_id' => null
+            'product_id' => null,
+            'variation_id' => null,
+            'formato' => null,
+            'molienda' => null
         ];
 
         // Check if WooCommerce is active
@@ -130,29 +177,64 @@ class Flow_Shortcode {
             return $product_data;
         }
 
-        $product = wc_get_product($product_id);
+        // Prioritize variation_id if provided
+        $product = null;
+        if ($variation_id) {
+            $product = wc_get_product($variation_id);
+            if ($product && $product->is_type('variation')) {
+                $product_data['variation_id'] = $variation_id;
+                $product_data['product_id'] = $product->get_parent_id();
+            }
+        } else {
+            $product = wc_get_product($product_id);
+            if ($product) {
+                $product_data['product_id'] = $product->get_id();
+            }
+        }
 
         if ($product && is_a($product, 'WC_Product')) {
-            $product_data['product_id'] = $product->get_id();
+            // Handle variation attributes if it's a variation
+            if ($product->is_type('variation')) {
+                $variation_attributes = $product->get_variation_attributes();
 
-            // Use product name as plan name
+                // Look for formato attribute
+                foreach (['pa_formato', 'formato', 'attribute_pa_formato'] as $formato_key) {
+                    if (isset($variation_attributes[$formato_key])) {
+                        $product_data['formato'] = $variation_attributes[$formato_key];
+                        break;
+                    }
+                }
+
+                // Look for molienda attribute
+                foreach (['pa_molienda', 'molienda', 'attribute_pa_molienda'] as $molienda_key) {
+                    if (isset($variation_attributes[$molienda_key])) {
+                        $product_data['molienda'] = $variation_attributes[$molienda_key];
+                        break;
+                    }
+                }
+            }
+
+            // Use product name as plan name (for variations, this includes variation info)
             $product_data['plan'] = $product->get_name();
 
-            // Get product price (convert to integer for Flow API)
+            // Get price from the current product (variation price if it's a variation, otherwise base product price)
             $price = $product->get_price();
             if ($price) {
                 $product_data['amount'] = intval(floatval($price));
+                error_log("Flow Debug: get_product_data_by_id - Using price from " . ($product->is_type('variation') ? 'variation' : 'product') . ": {$price}");
             }
 
             // Check for subscription-specific meta fields
-            $subscription_plan = get_post_meta($product->get_id(), '_flow_subscription_plan', true);
+            $meta_id = $product_data['variation_id'] ?? $product_data['product_id'];
+            $subscription_plan = get_post_meta($meta_id, '_flow_subscription_plan', true);
             if ($subscription_plan) {
                 $product_data['plan'] = $subscription_plan;
             }
 
-            $subscription_amount = get_post_meta($product->get_id(), '_flow_subscription_amount', true);
+            $subscription_amount = get_post_meta($meta_id, '_flow_subscription_amount', true);
             if ($subscription_amount) {
                 $product_data['amount'] = intval($subscription_amount);
+                error_log("Flow Debug: get_product_data_by_id - Overriding with subscription amount from meta: {$subscription_amount}");
             }
         }
 
@@ -169,19 +251,32 @@ class Flow_Shortcode {
         $attributes = shortcode_atts([
             'plan' => $product_data['plan'] ?? 'Plan Básico',
             'amount' => $product_data['amount'] ?? 5000,
-            'product_id' => $product_data['product_id'] ?? null
+            'product_id' => $product_data['product_id'] ?? null,
+            'variation_id' => $product_data['variation_id'] ?? null,
+            'formato' => $product_data['formato'] ?? null,
+            'molienda' => $product_data['molienda'] ?? null
         ], $atts);
 
-        // If product_id is passed as parameter but no product was auto-detected, try to get product data
-        if (!empty($attributes['product_id']) && empty($product_data['product_id'])) {
-            $manual_product_data = $this->get_product_data_by_id($attributes['product_id']);
-            if ($manual_product_data['product_id']) {
+        // If product_id/variation_id is passed as parameter but no product was auto-detected, try to get product data
+        if ((!empty($attributes['product_id']) && empty($product_data['product_id'])) ||
+            (!empty($attributes['variation_id']) && empty($product_data['variation_id']))) {
+            $manual_product_data = $this->get_product_data_by_id($attributes['product_id'], $attributes['variation_id']);
+            if ($manual_product_data['product_id'] || $manual_product_data['variation_id']) {
                 // Override with manual product data if no plan/amount specified in shortcode
                 if (!isset($atts['plan']) && $manual_product_data['plan']) {
                     $attributes['plan'] = $manual_product_data['plan'];
                 }
                 if (!isset($atts['amount']) && $manual_product_data['amount']) {
                     $attributes['amount'] = $manual_product_data['amount'];
+                }
+                if (!isset($atts['formato']) && $manual_product_data['formato']) {
+                    $attributes['formato'] = $manual_product_data['formato'];
+                }
+                if (!isset($atts['molienda']) && $manual_product_data['molienda']) {
+                    $attributes['molienda'] = $manual_product_data['molienda'];
+                }
+                if (!isset($atts['variation_id']) && $manual_product_data['variation_id']) {
+                    $attributes['variation_id'] = $manual_product_data['variation_id'];
                 }
             }
         }
@@ -226,6 +321,23 @@ class Flow_Shortcode {
         $product_id = !empty($_POST['flow_product_id']) ? intval($_POST['flow_product_id']) : $attributes['product_id'];
         if (!empty($product_id)) {
             $subscription_data['product_id'] = intval($product_id);
+        }
+
+        // Add variation ID if available
+        $variation_id = !empty($_POST['flow_variation_id']) ? intval($_POST['flow_variation_id']) : $attributes['variation_id'];
+        if (!empty($variation_id)) {
+            $subscription_data['variation_id'] = intval($variation_id);
+        }
+
+        // Add variation meta data
+        $formato = !empty($_POST['flow_formato']) ? sanitize_text_field($_POST['flow_formato']) : $attributes['formato'];
+        if (!empty($formato)) {
+            $subscription_data['formato'] = $formato;
+        }
+
+        $molienda = !empty($_POST['flow_molienda']) ? sanitize_text_field($_POST['flow_molienda']) : $attributes['molienda'];
+        if (!empty($molienda)) {
+            $subscription_data['molienda'] = $molienda;
         }
 
         $subscription_id = $this->get_flow_db()->insert_subscription($subscription_data);
@@ -399,7 +511,7 @@ class Flow_Shortcode {
     private function display_subscription_form($attributes, $product_data = []) {
         ?>
         <div class="flow-subscription-form">
-            <h3>Suscríbete al <?php echo esc_html($attributes['plan']); ?></h3>
+            <h3>Suscríbete a <?php echo esc_html($attributes['plan']); ?></h3>
             <p class="plan-amount">$<?php echo esc_html(number_format($attributes['amount'])); ?> CLP mensual</p>
 
             <?php if (!empty($attributes['product_id'])):
@@ -409,6 +521,22 @@ class Flow_Shortcode {
 
             <form method="post" class="flow-form">
                 <?php wp_nonce_field('flow_form', 'flow_nonce'); ?>
+
+                <?php if (!empty($attributes['product_id'])): ?>
+                    <input type="hidden" name="flow_product_id" value="<?php echo esc_attr($attributes['product_id']); ?>">
+                <?php endif; ?>
+
+                <?php if (!empty($attributes['variation_id'])): ?>
+                    <input type="hidden" name="flow_variation_id" value="<?php echo esc_attr($attributes['variation_id']); ?>">
+                <?php endif; ?>
+
+                <?php if (!empty($attributes['formato'])): ?>
+                    <input type="hidden" name="flow_formato" value="<?php echo esc_attr($attributes['formato']); ?>">
+                <?php endif; ?>
+
+                <?php if (!empty($attributes['molienda'])): ?>
+                    <input type="hidden" name="flow_molienda" value="<?php echo esc_attr($attributes['molienda']); ?>">
+                <?php endif; ?>
 
                 <div class="form-group">
                     <label for="flow_name">Nombre completo *</label>

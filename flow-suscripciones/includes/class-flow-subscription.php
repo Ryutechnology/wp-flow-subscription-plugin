@@ -208,7 +208,11 @@ class Flow_Subscription {
                 $subscription->amount,
                 $subscription->name,
                 $subscription->city,
-                $subscription->address
+                $subscription->address,
+                $subscription->product_id ?? null,
+                $subscription->variation_id ?? null,
+                $subscription->formato ?? null,
+                $subscription->molienda ?? null
             );
 
             if ($order_id) {
@@ -396,7 +400,11 @@ class Flow_Subscription {
                     $subscription->amount,
                     $subscription->name,
                     $subscription->city,
-                    $subscription->address
+                    $subscription->address,
+                    $subscription->product_id ?? null,
+                    $subscription->variation_id ?? null,
+                    $subscription->formato ?? null,
+                    $subscription->molienda ?? null
                 );
 
                 if ($order_id) {
