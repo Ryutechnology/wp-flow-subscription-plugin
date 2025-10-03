@@ -24,23 +24,34 @@ class Flow_Activator {
             status VARCHAR(20) DEFAULT 'pendiente',
             flow_customer_id VARCHAR(100) DEFAULT NULL,
             product_id INT DEFAULT NULL,
+            variation_id INT DEFAULT NULL,
+            formato VARCHAR(100) DEFAULT NULL,
+            molienda VARCHAR(100) DEFAULT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         ) $charset;";
 
-        $column_name = 'product_id';
-        // Verificar si la columna existe
-        $col_exists = $wpdb->get_results(
-            $wpdb->prepare(
-                "SHOW COLUMNS FROM $table LIKE %s",
-                $column_name
-            )
-        );
+        // Check and add new columns if they don't exist
+        $columns_to_check = [
+            'product_id' => 'INT DEFAULT NULL',
+            'variation_id' => 'INT DEFAULT NULL',
+            'formato' => 'VARCHAR(100) DEFAULT NULL',
+            'molienda' => 'VARCHAR(100) DEFAULT NULL'
+        ];
 
-        if ( empty( $col_exists ) ) {
-            // Si la columna no existe, la creamos
-            $wpdb->query(
-                "ALTER TABLE $table ADD $column_name INT DEFAULT NULL"
+        foreach ($columns_to_check as $column_name => $column_definition) {
+            $col_exists = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SHOW COLUMNS FROM $table LIKE %s",
+                    $column_name
+                )
             );
+
+            if ( empty( $col_exists ) ) {
+                // Si la columna no existe, la creamos
+                $wpdb->query(
+                    "ALTER TABLE $table ADD $column_name $column_definition"
+                );
+            }
         }
 
         require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
@@ -206,7 +217,11 @@ class Flow_Activator {
                             $subscription_data->amount,
                             $subscription_data->name,
                             $subscription_data->city,
-                            $subscription_data->address
+                            $subscription_data->address,
+                            $subscription_data->product_id ?? null,
+                            $subscription_data->variation_id ?? null,
+                            $subscription_data->formato ?? null,
+                            $subscription_data->molienda ?? null
                         );
                         if ($order_id) {
                             error_log("WooCommerce order #{$order_id} created for successful subscription - Email: {$subscription_data->email}");
@@ -514,7 +529,11 @@ class Flow_Activator {
                         $subscription_data->amount,
                         $subscription_data->name,
                         $subscription_data->city,
-                        $subscription_data->address
+                        $subscription_data->address,
+                        $subscription_data->product_id ?? null,
+                        $subscription_data->variation_id ?? null,
+                        $subscription_data->formato ?? null,
+                        $subscription_data->molienda ?? null
                     );
                     if ($order_id) {
                         error_log("WooCommerce order #{$order_id} created for successful subscription - Email: {$subscription_data->email}");

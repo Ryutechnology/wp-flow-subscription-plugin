@@ -186,8 +186,8 @@ class Flow_WooCommerce {
     /**
      * Create WooCommerce customer and order for subscription
      */
-    public function create_subscription_order($email, $plan_name, $amount, $customer_name = '', $customer_city = '', $customer_address = '') {
-        error_log("Flow Debug: Creating subscription order - Email: {$email}, Plan: {$plan_name}, Amount: {$amount}");
+    public function create_subscription_order($email, $plan_name, $amount, $customer_name = '', $customer_city = '', $customer_address = '', $product_id = null, $variation_id = null, $formato = null, $molienda = null) {
+        error_log("Flow Debug: Creating subscription order - Email: {$email}, Plan: {$plan_name}, Amount: {$amount}, Product ID: {$product_id}, Variation ID: {$variation_id}");
 
         if (!class_exists('WC_Order')) {
             error_log('Flow Debug: WC_Order class not found');
@@ -231,29 +231,76 @@ class Flow_WooCommerce {
         }
 
         // Get or create WooCommerce product for this subscription plan
-        $product_id = $this->get_or_create_subscription_product($plan_name, $plan_name, $amount);
-        error_log("Flow Debug: Product ID obtained: {$product_id}");
+        $selected_product_id = null;
+        $selected_variation_id = null;
 
-        if ($product_id > 0) {
-            // Add actual WooCommerce product to order
-            $product = wc_get_product($product_id);
-            error_log("Flow Debug: Product loaded: " . ($product ? 'Success' : 'Failed'));
+        if ($variation_id && wc_get_product($variation_id)) {
+            // Use the provided variation_id if it exists and is valid
+            $selected_variation_id = $variation_id;
+            $variation_product = wc_get_product($variation_id);
+            $selected_product_id = $variation_product->get_parent_id();
+            error_log("Flow Debug: Using provided variation ID: {$variation_id} with parent product ID: {$selected_product_id}");
+        } elseif ($product_id && wc_get_product($product_id)) {
+            // Use the provided product_id if it exists and is valid
+            $selected_product_id = $product_id;
+            error_log("Flow Debug: Using provided product ID: {$product_id}");
+        } else {
+            // Fallback to creating/finding subscription product
+            $selected_product_id = $this->get_or_create_subscription_product($plan_name, $plan_name, $amount);
+            error_log("Flow Debug: Created/found subscription product ID: {$selected_product_id}");
+        }
+
+        if ($selected_product_id > 0) {
+            // Add actual WooCommerce product or variation to order
+            $product_to_use = $selected_variation_id ? wc_get_product($selected_variation_id) : wc_get_product($selected_product_id);
+            error_log("Flow Debug: Product loaded: " . ($product_to_use ? 'Success' : 'Failed'));
+
+            // Use the variation price if we have a variation, otherwise use the provided amount
+            $final_amount = $amount;
+            if ($selected_variation_id && $product_to_use && $product_to_use->is_type('variation')) {
+                $variation_price = $product_to_use->get_price();
+                if ($variation_price) {
+                    $final_amount = intval(floatval($variation_price));
+                    error_log("Flow Debug: Using variation price: {$variation_price} instead of provided amount: {$amount}");
+                }
+            }
 
             $item = new WC_Order_Item_Product();
-            $item->set_product($product);
-            $item->set_name($product->get_name());
-            $item->set_product_id($product_id);
-            $item->set_variation_id(0);
+            $item->set_product($product_to_use);
+            $item->set_name($product_to_use->get_name());
+            $item->set_product_id($selected_product_id);
+            $item->set_variation_id($selected_variation_id ?? 0);
             $item->set_quantity(1);
-            $item->set_subtotal($amount);
-            $item->set_total($amount);
+            $item->set_subtotal($final_amount);
+            $item->set_total($final_amount);
 
             // Add product meta data to order item
             $item->add_meta_data('_flow_plan_id', $plan_name, true);
             $item->add_meta_data('_flow_subscription_payment', 'yes', true);
 
+            // Add variation meta data if available
+            if ($selected_variation_id) {
+                if ($formato) {
+                    $item->add_meta_data('formato', $formato, true);
+                }
+                if ($molienda) {
+                    $item->add_meta_data('molienda', $molienda, true);
+                }
+
+                // Also add variation attributes from the product
+                $variation_product = wc_get_product($selected_variation_id);
+                if ($variation_product && $variation_product->is_type('variation')) {
+                    $variation_attributes = $variation_product->get_variation_attributes();
+                    foreach ($variation_attributes as $attribute_name => $attribute_value) {
+                        // Clean up attribute name for display
+                        $clean_name = str_replace(['attribute_', 'pa_'], '', $attribute_name);
+                        $item->add_meta_data($clean_name, $attribute_value, true);
+                    }
+                }
+            }
+
             $order->add_item($item);
-            error_log("Flow Debug: Added product to order");
+            error_log("Flow Debug: Added product to order with variation data");
         } else {
             // Fallback to generic item if product creation fails
             error_log("Flow Debug: Using fallback generic item");
@@ -264,6 +311,14 @@ class Flow_WooCommerce {
             $item->set_total($amount);
             $item->add_meta_data('_flow_plan_id', $plan_name, true);
             $item->add_meta_data('_flow_subscription_payment', 'yes', true);
+
+            // Add variation meta data if available
+            if ($formato) {
+                $item->add_meta_data('formato', $formato, true);
+            }
+            if ($molienda) {
+                $item->add_meta_data('molienda', $molienda, true);
+            }
 
             $order->add_item($item);
         }
