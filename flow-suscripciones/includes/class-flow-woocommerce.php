@@ -271,6 +271,11 @@ class Flow_WooCommerce {
         $order->calculate_totals();
         error_log("Flow Debug: Order totals calculated");
 
+        // Set payment method and title for Flow Suscripcion
+        $order->set_payment_method('flow');
+        $order->set_payment_method_title('Flow Suscripcion');
+        error_log("Flow Debug: Payment method set to Flow Suscripcion");
+
         // Set order status
         $order->set_status('processing');
         error_log("Flow Debug: Order status set to processing");
