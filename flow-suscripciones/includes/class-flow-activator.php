@@ -27,6 +27,22 @@ class Flow_Activator {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         ) $charset;";
 
+        $column_name = 'product_id';
+        // Verificar si la columna existe
+        $col_exists = $wpdb->get_results(
+            $wpdb->prepare(
+                "SHOW COLUMNS FROM $table LIKE %s",
+                $column_name
+            )
+        );
+
+        if ( empty( $col_exists ) ) {
+            // Si la columna no existe, la creamos
+            $wpdb->query(
+                "ALTER TABLE $table ADD $column_name INT DEFAULT NULL"
+            );
+        }
+
         require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
         dbDelta( $sql );
 
