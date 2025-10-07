@@ -111,6 +111,44 @@ class Flow_Suscripciones {
 
             // Initialize cron jobs
             $this->cron = new Flow_Cron();
+
+            // Initialize WooCommerce integration
+            new Flow_WooCommerce();
+
+            // Load debug tools if WP_DEBUG is enabled
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'debug-payment-gateway.php';
+            }
+
+            // Load definitive gateway registration fix
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'fix-gateway-registration.php';
+
+            // Load manual trigger tool
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'manual-trigger.php';
+
+            // Load warning test tool
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'test-no-warnings.php';
+
+            // Load checkout debug tool
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'debug-checkout.php';
+
+            // Load quick fix tool
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'quick-fix-checkout.php';
+
+            // Load requirements checker
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'requirements-checker.php';
+
+            // Load block checkout support
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'block-checkout-support.php';
+
+            // Load classic checkout force (fallback solution)
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'force-classic-checkout.php';
+
+            // Load checkout compatibility checker
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'checkout-compatibility-check.php';
+
+            // Load shortcode error fix
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'shortcode-error-fix.php';
         } catch (Exception $e) {
             add_action('admin_notices', function() use ($e) {
                 echo '<div class="notice notice-error"><p>';

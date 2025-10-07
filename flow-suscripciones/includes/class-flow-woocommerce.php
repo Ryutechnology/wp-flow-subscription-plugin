@@ -16,14 +16,40 @@ class Flow_WooCommerce {
      * Initialize WooCommerce integration
      */
     public function init() {
-        // Register Flow payment gateway
+        // Load payment gateway class first when plugins are loaded
+        add_action('plugins_loaded', [$this, 'load_payment_gateway'], 11);
+
+        // Register Flow payment gateway after it's loaded
         add_filter('woocommerce_payment_gateways', [$this, 'add_flow_gateway']);
 
-        // Load payment gateway class
-        add_action('plugins_loaded', [$this, 'load_payment_gateway']);
+        // Additional hook to ensure registration on WooCommerce init
+        add_action('woocommerce_init', [$this, 'ensure_gateway_registration']);
 
         // Sync credentials on admin init
         add_action('admin_init', [$this, 'sync_flow_credentials']);
+    }
+
+    /**
+     * Ensure gateway is registered when WooCommerce initializes
+     */
+    public function ensure_gateway_registration() {
+        // Make sure our gateway class is loaded
+        $this->load_payment_gateway();
+
+        // Force add our gateway if it's not already there
+        if (class_exists('Flow_Payment_Gateway') && function_exists('WC')) {
+            $payment_gateways = WC()->payment_gateways();
+            if ($payment_gateways) {
+                $gateways = $payment_gateways->payment_gateways();
+                if (!isset($gateways['flow'])) {
+                    $gateways['flow'] = new Flow_Payment_Gateway();
+                    // Update the gateways array
+                    if (property_exists($payment_gateways, 'payment_gateways')) {
+                        $payment_gateways->payment_gateways = $gateways;
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -34,7 +60,13 @@ class Flow_WooCommerce {
             return;
         }
 
-        require_once plugin_dir_path(__FILE__) . 'class-flow-payment-gateway.php';
+        // Only load if not already loaded
+        if (!class_exists('Flow_Payment_Gateway')) {
+            $gateway_file = plugin_dir_path(__FILE__) . 'class-flow-payment-gateway.php';
+            if (file_exists($gateway_file)) {
+                require_once $gateway_file;
+            }
+        }
     }
 
     /**
@@ -43,6 +75,17 @@ class Flow_WooCommerce {
     public function add_flow_gateway($gateways) {
         if (class_exists('Flow_Payment_Gateway')) {
             $gateways[] = 'Flow_Payment_Gateway';
+
+            // Add admin notice on successful registration (only once)
+            static $notice_added = false;
+            if (!$notice_added && is_admin()) {
+                add_action('admin_notices', function() {
+                    echo '<div class="notice notice-success is-dismissible">';
+                    echo '<p><strong>Flow Suscripciones:</strong> Método de pago registrado exitosamente en WooCommerce.</p>';
+                    echo '</div>';
+                });
+                $notice_added = true;
+            }
         }
         return $gateways;
     }
