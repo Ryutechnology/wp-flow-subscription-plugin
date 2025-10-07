@@ -39,6 +39,7 @@ class Flow_Loader {
             'class-flow-database.php',      // No dependencies
             'class-flow-subscription.php',  // Depends on API, DB
             'class-flow-woocommerce.php',   // No dependencies
+            'class-flow-payment-gateway.php', // Depends on WooCommerce
             'class-flow-admin.php',         // Depends on database
             'class-flow-shortcode.php',     // Depends on API, DB, WC
             'class-flow-cron.php'           // Depends on API, DB, WC
@@ -66,6 +67,9 @@ class Flow_Loader {
             'Flow_Shortcode',
             'Flow_Cron'
         ];
+
+        // Flow_Payment_Gateway is optional (only loaded if WooCommerce is available)
+        // So we don't include it in the required classes check
 
         $missing_classes = [];
         foreach ($required_classes as $class) {
