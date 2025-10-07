@@ -9,7 +9,7 @@ Author: Rudyard Fuster
 if (!defined('ABSPATH')) exit;
 
 // Define plugin constants
-define('FLOW_SUSCRIPCIONES_VERSION', '2.0');
+define('FLOW_SUSCRIPCIONES_VERSION', '1.1.0');
 define('FLOW_SUSCRIPCIONES_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('FLOW_SUSCRIPCIONES_PLUGIN_URL', plugin_dir_url(__FILE__));
 
