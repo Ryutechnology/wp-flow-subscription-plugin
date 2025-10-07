@@ -149,6 +149,9 @@ class Flow_Suscripciones {
 
             // Load shortcode error fix
             require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'shortcode-error-fix.php';
+
+            // Load Flow payment test tool
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'test-flow-payment.php';
         } catch (Exception $e) {
             add_action('admin_notices', function() use ($e) {
                 echo '<div class="notice notice-error"><p>';
