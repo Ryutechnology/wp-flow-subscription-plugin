@@ -83,20 +83,6 @@ class Flow_API {
         ], 'GET');
     }
 
-    /**
-     * Create mandate for subscription
-     */
-    public function create_mandate($plan_id, $email, $name) {
-        $url_return = rest_url('flow/v1/return');
-        $url_confirmation = rest_url('flow/v1/webhook');
-        
-        return $this->request('subscription/createMandate', [
-            'planId' => $plan_id,
-            'email' => $email,
-            'urlReturn' => $url_return,
-            'urlConfirmation' => $url_confirmation
-        ]);
-    }
 
     /**
      * Create customer in Flow

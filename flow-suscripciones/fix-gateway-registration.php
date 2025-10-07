@@ -105,20 +105,150 @@ function flow_register_payment_gateway() {
             public function process_payment($order_id) {
                 $order = wc_get_order($order_id);
 
-                // Mark as on-hold (we're awaiting the payment)
-                $order->update_status('on-hold', __('Awaiting Flow payment', 'woocommerce'));
+                if (!$order) {
+                    wc_add_notice('Error: No se pudo procesar el pedido.', 'error');
+                    return array('result' => 'fail');
+                }
 
-                // Reduce stock levels
-                wc_reduce_stock_levels($order_id);
+                // Initialize Flow API
+                $flow_api = new Flow_API();
 
-                // Remove cart
+                // Get order details
+                $amount = intval($order->get_total());
+                $order_number = $order->get_order_number();
+                $customer_email = $order->get_billing_email();
+                $customer_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
+                $customer_address = $order->get_billing_address_1();
+                $customer_city = $order->get_billing_city();
+
+                // Step 1: Create or get subscription plan
+                $plan_name = 'Suscripción ' . get_bloginfo('name') . ' - $' . $amount;
+                $plan_response = $flow_api->create_plan($plan_name, $amount);
+
+                if (isset($plan_response['error'])) {
+                    $order->add_order_note('Error creating Flow plan: ' . $plan_response['error']);
+                    wc_add_notice('Error creando plan de suscripción: ' . $plan_response['error'], 'error');
+                    return array('result' => 'fail');
+                }
+
+                if (!isset($plan_response['planId'])) {
+                    $order->add_order_note('Invalid Flow plan response: missing planId');
+                    wc_add_notice('Error: Respuesta inválida al crear plan de suscripción.', 'error');
+                    return array('result' => 'fail');
+                }
+
+                $plan_id = $plan_response['planId'];
+
+                // Step 2: Create subscription and customer
+                $subscription_response = $flow_api->create_subscription($plan_id, $customer_email);
+
+                if (isset($subscription_response['error'])) {
+                    $order->add_order_note('Error creating Flow subscription: ' . $subscription_response['error']);
+                    wc_add_notice('Error creando suscripción: ' . $subscription_response['error'], 'error');
+                    return array('result' => 'fail');
+                }
+
+                if (!isset($subscription_response['subscriptionId'])) {
+                    $order->add_order_note('Invalid Flow subscription response: missing subscriptionId');
+                    wc_add_notice('Error: Respuesta inválida al crear suscripción.', 'error');
+                    return array('result' => 'fail');
+                }
+
+                $subscription_id = $subscription_response['subscriptionId'];
+
+                // Step 3: Register credit card for the customer
+                $url_return = WC()->api_request_url('flow_return') . '?order_id=' . $order_id;
+                $card_registration_response = $flow_api->register_credit_card($customer_email, $url_return);
+
+                if (isset($card_registration_response['error'])) {
+                    $order->add_order_note('Error registering credit card: ' . $card_registration_response['error']);
+                    wc_add_notice('Error registrando tarjeta de crédito: ' . $card_registration_response['error'], 'error');
+                    return array('result' => 'fail');
+                }
+
+                if (!isset($card_registration_response['url']) || !isset($card_registration_response['token'])) {
+                    $order->add_order_note('Invalid Flow card registration response: missing URL or token');
+                    wc_add_notice('Error: Respuesta inválida del registro de tarjeta.', 'error');
+                    return array('result' => 'fail');
+                }
+
+                // Store Flow subscription data in order meta
+                $order->update_meta_data('_flow_token', $card_registration_response['token']);
+                $order->update_meta_data('_flow_plan_id', $plan_id);
+                $order->update_meta_data('_flow_subscription_id', $subscription_id);
+                $order->update_meta_data('_flow_customer_email', $customer_email);
+                $order->update_meta_data('_flow_card_registration_data', $card_registration_response);
+                $order->update_meta_data('_flow_subscription_amount', $amount);
+
+                // Mark order as pending credit card registration
+                $order->update_status('pending', 'Esperando registro de tarjeta de crédito vía Flow. Token: ' . $card_registration_response['token']);
+                $order->save();
+
+                // Clear cart
                 WC()->cart->empty_cart();
 
-                // Return thankyou redirect
+                // Redirect to Flow credit card registration page
                 return array(
-                    'result'   => 'success',
-                    'redirect' => $this->get_return_url($order)
+                    'result' => 'success',
+                    'redirect' => $card_registration_response['url']
                 );
+            }
+
+            /**
+             * Create Flow payment
+             */
+            private function create_flow_payment($payment_data) {
+                // Get API credentials
+                $api_key = $this->api_key ?: get_option('flow_api_key');
+                $secret_key = $this->secret_key ?: get_option('flow_secret_key');
+
+                if (empty($api_key) || empty($secret_key)) {
+                    return array('error' => 'Credenciales Flow no configuradas');
+                }
+
+                // Prepare parameters for Flow API
+                $params = array(
+                    'apiKey' => $api_key,
+                    'commerceOrder' => $payment_data['commerceOrder'],
+                    'subject' => $payment_data['subject'],
+                    'amount' => $payment_data['amount'],
+                    'currency' => $payment_data['currency'],
+                    'email' => $payment_data['email'],
+                    'urlConfirmation' => $payment_data['urlConfirmation'],
+                    'urlReturn' => $payment_data['urlReturn']
+                );
+
+                // Sort parameters for signature
+                ksort($params);
+
+                // Create signature
+                $params['s'] = hash_hmac('sha256', urldecode(http_build_query($params)), $secret_key);
+
+                // Determine API URL based on sandbox mode
+                $sandbox = $this->get_option('sandbox', 'yes') === 'yes';
+                $api_url = $sandbox ? 'https://sandbox.flow.cl/api/payment/create' : 'https://www.flow.cl/api/payment/create';
+
+                // Make API request
+                $response = wp_remote_post($api_url, array(
+                    'body' => $params,
+                    'timeout' => 30,
+                    'headers' => array(
+                        'Content-Type' => 'application/x-www-form-urlencoded'
+                    )
+                ));
+
+                if (is_wp_error($response)) {
+                    return array('error' => 'Error de conexión: ' . $response->get_error_message());
+                }
+
+                $body = wp_remote_retrieve_body($response);
+                $data = json_decode($body, true);
+
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    return array('error' => 'Respuesta JSON inválida de Flow');
+                }
+
+                return $data;
             }
 
             public function is_available() {
