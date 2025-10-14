@@ -70,9 +70,11 @@ add_action('wp_loaded', function() {
                     echo esc_html(json_encode($customer_response, JSON_PRETTY_PRINT));
                     echo '</pre>';
 
-                    // Step 3: Create subscription
+                    // Step 3: Create subscription (after customer is created)
                     echo '<h4>Step 3: Creating Subscription</h4>';
-                    $subscription_response = $flow_api->create_subscription($plan_id, $test_email);
+                    $customer_id = $customer_response['customerId'] ?? $test_email;
+                    echo 'Using Customer ID: ' . esc_html($customer_id) . '<br>';
+                    $subscription_response = $flow_api->create_subscription($plan_id, $customer_id);
 
                     if (isset($subscription_response['error'])) {
                         echo '❌ Subscription Creation Error: ' . esc_html($subscription_response['error']) . '<br>';
@@ -88,7 +90,8 @@ add_action('wp_loaded', function() {
                             // Step 4: Register credit card
                             echo '<h4>Step 4: Registering Credit Card</h4>';
                             $url_return = home_url('/wp-admin/admin.php?page=flow-payment-test&test_return=1');
-                            $card_response = $flow_api->register_credit_card($test_email, $url_return);
+                            echo 'Using Customer ID for card registration: ' . esc_html($customer_id) . '<br>';
+                            $card_response = $flow_api->register_credit_card($customer_id, $url_return);
 
                             if (isset($card_response['error'])) {
                                 echo '❌ Card Registration Error: ' . esc_html($card_response['error']) . '<br>';

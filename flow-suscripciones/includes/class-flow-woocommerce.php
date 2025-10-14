@@ -348,7 +348,7 @@ class Flow_WooCommerce {
             // Fallback to generic item if product creation fails
             error_log("Flow Debug: Using fallback generic item");
             $item = new WC_Order_Item_Product();
-            $item->set_name($plan_name . ' - Suscripción');
+            $item->set_name($plan_name . ' - Subscription');
             $item->set_quantity(1);
             $item->set_subtotal($amount);
             $item->set_total($amount);
@@ -430,7 +430,7 @@ class Flow_WooCommerce {
         $product = new WC_Product_Simple();
 
         // Set basic product information
-        $product->set_name($plan_name . ' - Suscripción');
+        $product->set_name($plan_name . ' - Subscription');
         $product->set_slug(sanitize_title('flow-subscription-' . $plan_id));
         $product->set_sku('flow-subscription-' . $plan_id);
 
