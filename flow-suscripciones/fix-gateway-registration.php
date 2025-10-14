@@ -122,7 +122,7 @@ function flow_register_payment_gateway() {
                 $customer_city = $order->get_billing_city();
 
                 // Step 1: Create or get subscription plan
-                $plan_name = 'Suscripción ' . get_bloginfo('name') . ' - $' . $amount;
+                $plan_name = 'Subscription' . get_bloginfo('name') . ' - $' . $amount;
                 $plan_response = $flow_api->create_plan($plan_name, $amount);
 
                 if (isset($plan_response['error'])) {
@@ -139,12 +139,30 @@ function flow_register_payment_gateway() {
 
                 $plan_id = $plan_response['planId'];
 
-                // Step 2: Create subscription and customer
-                $subscription_response = $flow_api->create_subscription($plan_id, $customer_email);
+                // Step 2: Create customer first
+                $customer_response = $flow_api->create_customer($customer_email, $customer_name, $customer_address, $customer_city);
 
-                if (isset($subscription_response['error'])) {
-                    $order->add_order_note('Error creating Flow subscription: ' . $subscription_response['error']);
-                    wc_add_notice('Error creando suscripción: ' . $subscription_response['error'], 'error');
+                if (isset($customer_response['code'])) {
+                    $order->add_order_note('Error creating Flow customer: ' . $customer_response['message']);
+                    wc_add_notice('Error creando cliente: ' . $customer_response['message'], 'error');
+                    return array('result' => 'fail');
+                }
+
+                if (!isset($customer_response['customerId'])) {
+                    $order->add_order_note('Invalid Flow customer response: missing customerId');
+                    wc_add_notice('Error: Respuesta inválida al crear cliente.', 'error');
+                    return array('result' => 'fail');
+                }
+
+                $customer_id = $customer_response['customerId'];
+
+                // Step 3: Create subscription
+                $subscription_response = $flow_api->create_subscription($plan_id, $customer_id);
+                
+
+                if (isset($subscription_response['code'])) {
+                    $order->add_order_note('Error creating Flow subscription: ' . $subscription_response['message']);
+                    wc_add_notice('Error creando suscripción: ' . $subscription_response['message'], 'error');
                     return array('result' => 'fail');
                 }
 
@@ -156,13 +174,13 @@ function flow_register_payment_gateway() {
 
                 $subscription_id = $subscription_response['subscriptionId'];
 
-                // Step 3: Register credit card for the customer
+                // Step 4: Register credit card for the customer
                 $url_return = WC()->api_request_url('flow_return') . '?order_id=' . $order_id;
-                $card_registration_response = $flow_api->register_credit_card($customer_email, $url_return);
+                $card_registration_response = $flow_api->register_credit_card($customer_id, $url_return);
 
-                if (isset($card_registration_response['error'])) {
-                    $order->add_order_note('Error registering credit card: ' . $card_registration_response['error']);
-                    wc_add_notice('Error registrando tarjeta de crédito: ' . $card_registration_response['error'], 'error');
+                if (isset($card_registration_response['code'])) {
+                    $order->add_order_note('Error registering credit card: ' . $card_registration_response['message']);
+                    wc_add_notice('Error registrando tarjeta de crédito: ' . $card_registration_response['message'], 'error');
                     return array('result' => 'fail');
                 }
 
@@ -176,7 +194,9 @@ function flow_register_payment_gateway() {
                 $order->update_meta_data('_flow_token', $card_registration_response['token']);
                 $order->update_meta_data('_flow_plan_id', $plan_id);
                 $order->update_meta_data('_flow_subscription_id', $subscription_id);
+                $order->update_meta_data('_flow_customer_id', $customer_id);
                 $order->update_meta_data('_flow_customer_email', $customer_email);
+                $order->update_meta_data('_flow_customer_data', $customer_response);
                 $order->update_meta_data('_flow_card_registration_data', $card_registration_response);
                 $order->update_meta_data('_flow_subscription_amount', $amount);
 
@@ -190,7 +210,7 @@ function flow_register_payment_gateway() {
                 // Redirect to Flow credit card registration page
                 return array(
                     'result' => 'success',
-                    'redirect' => $card_registration_response['url']
+                    'redirect' => $card_registration_response['url'] . '?token=' . $card_registration_response['token']
                 );
             }
 
