@@ -100,6 +100,12 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
     public function process_payment($order_id) {
         error_log('Flow Subscription: Starting process_payment for order ID: ' . $order_id);
 
+        // Validate subscription products first
+        if (!$this->validate_fields()) {
+            error_log('Flow Subscription: Validation failed for order ID: ' . $order_id);
+            return array('result' => 'fail');
+        }
+
         $order = wc_get_order($order_id);
 
         if (!$order) {
@@ -618,7 +624,7 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
     }
 
     /**
-     * Check if this gateway is available in the user's country
+     * Check if this gateway is available
      */
     public function is_available() {
         // Basic availability check
@@ -626,8 +632,78 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
             return false;
         }
 
-        // For testing purposes, make it more permissive
-        // You can tighten these requirements later
+        // Check if WooCommerce is available
+        if (!function_exists('WC')) {
+            return false;
+        }
+
+        // Check if cart exists
+        if (!WC()->cart || WC()->cart->is_empty()) {
+            return false;
+        }
+
+        // Always show the gateway - we'll handle validation in process_payment
+        return true;
+    }
+
+    /**
+     * Check if cart has any non-subscription products
+     */
+    private function get_non_subscription_products() {
+        $non_subscription_products = array();
+
+        if (!WC()->cart || WC()->cart->is_empty()) {
+            return $non_subscription_products;
+        }
+
+        $cart_items = WC()->cart->get_cart();
+
+        foreach ($cart_items as $cart_item) {
+            $product = $cart_item['data'];
+
+            if (!$product) {
+                continue;
+            }
+
+            // Check if product has "Suscripciones Flow" category
+            $has_subscription_category = has_term('Suscripciones Flow', 'product_cat', $product->get_id());
+
+            error_log('Flow Subscription: Product ID ' . $product->get_id() . ' (' . $product->get_name() . ') has Suscripciones Flow category: ' . ($has_subscription_category ? 'Yes' : 'No'));
+
+            // If product doesn't have the "Suscripciones Flow" category
+            if (!$has_subscription_category) {
+                $product_categories = wp_get_post_terms($product->get_id(), 'product_cat', array('fields' => 'names'));
+                $category_list = !empty($product_categories) ? implode(', ', $product_categories) : 'Sin categorías';
+
+                $non_subscription_products[] = array(
+                    'id' => $product->get_id(),
+                    'name' => $product->get_name(),
+                    'categories' => $category_list
+                );
+            }
+        }
+
+        return $non_subscription_products;
+    }
+
+    /**
+     * Validate payment before processing
+     */
+    public function validate_fields() {
+        $non_subscription_products = $this->get_non_subscription_products();
+
+        if (!empty($non_subscription_products)) {
+            $product_list = array();
+            foreach ($non_subscription_products as $product) {
+                $product_list[] = '• ' . $product['name'];
+            }
+
+            $message = 'Flow Suscripciones solo puede procesar productos de la categoría "Suscripciones Flow". Los siguientes productos no pertenecen a esta categoría:' . PHP_EOL . PHP_EOL . implode(PHP_EOL, $product_list) . PHP_EOL . PHP_EOL . 'Por favor elige otros productos o selecciona otro método de pago.';
+
+            wc_add_notice($message, 'error');
+            return false;
+        }
+
         return true;
     }
 
