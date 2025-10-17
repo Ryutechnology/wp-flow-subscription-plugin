@@ -2,7 +2,6 @@
 if (!defined('ABSPATH')) exit;
 
 class Flow_API {
-    
     private $api_key;
     private $secret_key;
     private $base_url = 'https://sandbox.flow.cl/api/';
@@ -159,11 +158,12 @@ class Flow_API {
     /**
      * Charge mandate (for cron jobs)
      */
-    public function charge_mandate($mandate_id, $amount, $description) {
-        return $this->request('mandate/charge', [
-            'mandateId' => $mandate_id,
+    public function charge_customer($flow_customer_id, $amount, $subject, $commerce_order) {
+        return $this->request('customer/charge', [
+            'customerId' => $flow_customer_id,
             'amount' => $amount,
-            'description' => $description
+            'subject' => $subject,
+            'commerceOrder' => $commerce_order
         ]);
     }
 
