@@ -31,7 +31,7 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
         $this->init_settings();
 
         // Define user set variables
-        $this->title = $this->get_option('title', 'Flow Suscripciones');
+        $this->title = $this->get_option('title', 'Convierte tu carrito en una suscripción');
         $this->description = $this->get_option('description', 'Paga con Flow - Suscripciones recurrentes seguras.');
         $this->enabled = $this->get_option('enabled', 'yes');
         $this->api_key = $this->get_option('api_key');
@@ -556,8 +556,9 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
         // Create signature
         $params['s'] = hash_hmac('sha256', urldecode(http_build_query($params)), $secret_key);
 
-        // Determine API URL based on sandbox mode
-        $api_url = $this->sandbox ? 'https://sandbox.flow.cl/api/payment/getStatus' : 'https://www.flow.cl/api/payment/getStatus';
+        // Determine API URL based on global Flow environment setting
+        $environment = get_option('flow_environment', 'sandbox');
+        $api_url = ($environment === 'production') ? 'https://www.flow.cl/api/payment/getStatus' : 'https://sandbox.flow.cl/api/payment/getStatus';
 
         // Make API request
         $response = wp_remote_get($api_url . '?' . http_build_query($params), array(
