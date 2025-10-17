@@ -4,15 +4,38 @@ if (!defined('ABSPATH')) exit;
 class Flow_API {
     private $api_key;
     private $secret_key;
-    private $base_url = 'https://sandbox.flow.cl/api/';
+    private $base_url;
 
     public function __construct() {
         $this->api_key = get_option('flow_api_key');
         $this->secret_key = get_option('flow_secret_key');
 
+        // Set base URL based on environment setting
+        $environment = get_option('flow_environment', 'sandbox');
+        if ($environment === 'production') {
+            $this->base_url = 'https://www.flow.cl/api/';
+        } else {
+            $this->base_url = 'https://sandbox.flow.cl/api/';
+        }
+
+        error_log('Flow API: Environment: ' . $environment);
         error_log('Flow API: Initialized with base URL: ' . $this->base_url);
         error_log('Flow API: API Key configured: ' . (!empty($this->api_key) ? 'Yes' : 'No'));
         error_log('Flow API: Secret Key configured: ' . (!empty($this->secret_key) ? 'Yes' : 'No'));
+    }
+
+    /**
+     * Get current environment information
+     */
+    public function get_environment_info() {
+        $environment = get_option('flow_environment', 'sandbox');
+        return array(
+            'environment' => $environment,
+            'base_url' => $this->base_url,
+            'is_production' => $environment === 'production',
+            'api_key_configured' => !empty($this->api_key),
+            'secret_key_configured' => !empty($this->secret_key)
+        );
     }
 
     /**

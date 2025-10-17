@@ -37,14 +37,107 @@ class Flow_Admin {
         if (isset($_POST['flow_api_key'])) {
             update_option('flow_api_key', sanitize_text_field($_POST['flow_api_key']));
             update_option('flow_secret_key', sanitize_text_field($_POST['flow_secret_key']));
-            echo '<div class="updated"><p>Guardado.</p></div>';
+            update_option('flow_environment', sanitize_text_field($_POST['flow_environment']));
+            echo '<div class="updated"><p>Configuración guardada exitosamente.</p></div>';
         }
 
-        echo '<div class="wrap"><h1>Ajustes Flow</h1><form method="post">';
-        echo '<p><label>API Key: <input type="text" name="flow_api_key" value="' . esc_attr(get_option('flow_api_key')) . '"/></label></p>';
-        echo '<p><label>Secret Key: <input type="text" name="flow_secret_key" value="' . esc_attr(get_option('flow_secret_key')) . '"/></label></p>';
-        submit_button();
-        echo '</form></div>';
+        $current_environment = get_option('flow_environment', 'sandbox');
+
+        echo '<div class="wrap"><h1>Ajustes Flow</h1>';
+        echo '<form method="post">';
+
+        echo '<table class="form-table">';
+
+        // Environment setting
+        echo '<tr>';
+        echo '<th scope="row"><label for="flow_environment">Entorno</label></th>';
+        echo '<td>';
+        echo '<select name="flow_environment" id="flow_environment">';
+        echo '<option value="sandbox"' . selected($current_environment, 'sandbox', false) . '>Sandbox (Pruebas)</option>';
+        echo '<option value="production"' . selected($current_environment, 'production', false) . '>Producción</option>';
+        echo '</select>';
+        echo '<p class="description">Selecciona si deseas usar el entorno de pruebas (Sandbox) o producción.</p>';
+        echo '</td>';
+        echo '</tr>';
+
+        // API Key
+        echo '<tr>';
+        echo '<th scope="row"><label for="flow_api_key">API Key</label></th>';
+        echo '<td>';
+        echo '<input type="text" name="flow_api_key" id="flow_api_key" value="' . esc_attr(get_option('flow_api_key')) . '" class="regular-text" />';
+        echo '<p class="description">Tu clave API de Flow ' . ($current_environment === 'production' ? 'de producción' : 'de sandbox') . '.</p>';
+        echo '</td>';
+        echo '</tr>';
+
+        // Secret Key
+        echo '<tr>';
+        echo '<th scope="row"><label for="flow_secret_key">Secret Key</label></th>';
+        echo '<td>';
+        echo '<input type="password" name="flow_secret_key" id="flow_secret_key" value="' . esc_attr(get_option('flow_secret_key')) . '" class="regular-text" />';
+        echo '<p class="description">Tu clave secreta de Flow ' . ($current_environment === 'production' ? 'de producción' : 'de sandbox') . '.</p>';
+        echo '</td>';
+        echo '</tr>';
+
+        echo '</table>';
+
+        // Environment info
+        echo '<div class="notice notice-info">';
+        echo '<p><strong>Entorno actual:</strong> ';
+        if ($current_environment === 'production') {
+            echo '<span style="color: #d63638;">🔴 PRODUCCIÓN</span> - Se procesarán pagos reales.';
+        } else {
+            echo '<span style="color: #00a32a;">🟢 SANDBOX</span> - Entorno de pruebas, no se procesarán pagos reales.';
+        }
+        echo '</p>';
+        echo '<p><strong>URL Base:</strong> ' . ($current_environment === 'production' ? 'https://www.flow.cl/api/' : 'https://sandbox.flow.cl/api/') . '</p>';
+        echo '</div>';
+
+        submit_button('Guardar Configuración');
+        echo '</form>';
+
+        // Add JavaScript for environment switching
+        echo '<script>
+        jQuery(document).ready(function($) {
+            $("#flow_environment").change(function() {
+                var env = $(this).val();
+                var isProduction = env === "production";
+
+                // Update descriptions
+                $("#flow_api_key").next(".description").html(
+                    "Tu clave API de Flow " + (isProduction ? "de producción" : "de sandbox") + "."
+                );
+                $("#flow_secret_key").next(".description").html(
+                    "Tu clave secreta de Flow " + (isProduction ? "de producción" : "de sandbox") + "."
+                );
+
+                // Update environment info
+                $(".notice-info p:first").html(
+                    "<strong>Entorno actual:</strong> " +
+                    (isProduction ?
+                        "<span style=\"color: #d63638;\">🔴 PRODUCCIÓN</span> - Se procesarán pagos reales." :
+                        "<span style=\"color: #00a32a;\">🟢 SANDBOX</span> - Entorno de pruebas, no se procesarán pagos reales.")
+                );
+                $(".notice-info p:last").html(
+                    "<strong>URL Base:</strong> " +
+                    (isProduction ? "https://www.flow.cl/api/" : "https://sandbox.flow.cl/api/")
+                );
+
+                // Show warning when switching to production
+                if (isProduction && !$("#production-warning").length) {
+                    $("#flow_environment").closest("td").append(
+                        "<div id=\"production-warning\" class=\"notice notice-warning\" style=\"margin-top: 10px; padding: 10px;\">" +
+                        "<p><strong>⚠️ ADVERTENCIA:</strong> Estás cambiando al entorno de producción. " +
+                        "Asegúrate de usar las credenciales correctas de producción antes de guardar.</p>" +
+                        "</div>"
+                    );
+                } else if (!isProduction) {
+                    $("#production-warning").remove();
+                }
+            });
+        });
+        </script>';
+
+        echo '</div>';
     }
 
     /**
