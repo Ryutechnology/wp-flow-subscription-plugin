@@ -430,6 +430,17 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
         $order->update_meta_data('_flow_card_id', $card_id);
         $order->update_meta_data('_flow_registration_status', $registration_status);
 
+        // Store Flow subscription data in customer profile
+        $customer_user_id = $order->get_customer_id();
+        if ($customer_user_id) {
+            error_log('Flow Subscription: Storing Flow data for customer user ID: ' . $customer_user_id);
+
+            Flow_Customer_Columns::set_customer_flow_subscription_id($customer_user_id, $subscription_id);
+            Flow_Customer_Columns::set_customer_flow_customer_id($customer_user_id, $customer_id);
+
+            error_log('Flow Subscription: Customer Flow data stored - Subscription ID: ' . $subscription_id . ', Customer ID: ' . $customer_id);
+        }
+
         // Mark order as completed - subscription is now active with registered card
         error_log('Flow Subscription: Completing payment for order: ' . $order_id . ' with subscription ID: ' . $subscription_id);
 

@@ -127,7 +127,7 @@ function flow_register_payment_gateway() {
                 $customer_city = $order->get_billing_city();
 
                 // Step 1: Create or get subscription plan
-                $plan_name = 'Subscription' . get_bloginfo('name') . ' - $' . $amount;
+                $plan_name = 'subs_cart' . $order_number . ' - $' . $amount;
                 $plan_response = $flow_api->create_plan($plan_name, $amount);
 
                 if (isset($plan_response['error'])) {
@@ -163,7 +163,6 @@ function flow_register_payment_gateway() {
 
                 // Step 3: Create subscription
                 $subscription_response = $flow_api->create_subscription($plan_id, $customer_id);
-                
 
                 if (isset($subscription_response['code'])) {
                     $order->add_order_note('Error creating Flow subscription: ' . $subscription_response['message']);
@@ -180,7 +179,7 @@ function flow_register_payment_gateway() {
                 $subscription_id = $subscription_response['subscriptionId'];
 
                 // Step 4: Register credit card for the customer
-                $url_return = WC()->api_request_url('flow_return') . '?order_id=' . $order_id;
+                $url_return = rest_url('flow/v1/return') . '?order_id=' . $order_id;
                 $card_registration_response = $flow_api->register_credit_card($customer_id, $url_return);
 
                 if (isset($card_registration_response['code'])) {
@@ -204,6 +203,14 @@ function flow_register_payment_gateway() {
                 $order->update_meta_data('_flow_customer_data', $customer_response);
                 $order->update_meta_data('_flow_card_registration_data', $card_registration_response);
                 $order->update_meta_data('_flow_subscription_amount', $amount);
+
+                // Store Flow subscription data in customer meta (for immediate tracking)
+                $wc_customer_id = $order->get_customer_id();
+                if ($wc_customer_id > 0) {
+                    Flow_Customer_Columns::set_customer_flow_subscription_id($wc_customer_id, $subscription_id);
+                    Flow_Customer_Columns::set_customer_flow_customer_id($wc_customer_id, $customer_id);
+                    error_log("Flow Gateway: Stored subscription data for customer {$wc_customer_id} - Subscription ID: {$subscription_id}, Customer ID: {$customer_id}");
+                }
 
                 // Mark order as pending credit card registration
                 $order->update_status('pending', 'Esperando registro de tarjeta de crédito vía Flow. Token: ' . $card_registration_response['token']);

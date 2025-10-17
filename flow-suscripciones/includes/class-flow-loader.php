@@ -40,6 +40,7 @@ class Flow_Loader {
             'class-flow-subscription.php',  // Depends on API, DB
             'class-flow-woocommerce.php',   // No dependencies
             'class-flow-payment-gateway.php', // Depends on WooCommerce
+            'class-flow-customer-columns.php', // Depends on WooCommerce
             'class-flow-admin.php',         // Depends on database
             'class-flow-shortcode.php',     // Depends on API, DB, WC
             'class-flow-cron.php'           // Depends on API, DB, WC

@@ -101,7 +101,7 @@ class Flow_Activator {
         add_shortcode('flow_return', [$this, 'handle_flow_return']);
         add_action('rest_api_init', [$this, 'register_rest_endpoints']);
     }
-    
+
     public function handle_flow_return() {
         if (isset($_GET['token'])) {
             echo '<h2>Procesando retorno de Flow...</h2>';
@@ -150,34 +150,6 @@ class Flow_Activator {
                     exit;
                 }
 
-                // Get plan
-                $plan = $this->get_flow_api()->create_plan($plan_id);
-                if (!empty($plan['code'])) {
-                    // Redirect to failure page for plan creation errors
-                    $failure_url = add_query_arg([
-                        'error' => 'Error al crear plan en Flow: ' . $plan['message'],
-                        'error_code' => $plan['code'],
-                        'plan' => $plan_id
-                    ], home_url('/suscripcion-fallo/'));
-
-                    wp_redirect($failure_url);
-                    exit;
-                }
-
-                $subscription = $this->get_flow_api()->create_subscription($plan['planId'], $customer);
-                if (!empty($subscription['code'])) {
-                    // Redirect to failure page for subscription creation errors
-                    $failure_url = add_query_arg([
-                        'error' => 'Error al crear suscripción en Flow: ' . $subscription['message'],
-                        'error_code' => $subscription['code'],
-                        'plan' => $plan_id,
-                        'amount' => $plan_info['amount'] ?? ''
-                    ], home_url('/suscripcion-fallo/'));
-
-                    wp_redirect($failure_url);
-                    exit;
-                }
-
                 // Update subscription status in database
                 global $wpdb;
                 $table = $wpdb->prefix . 'flow_subscriptions';
@@ -210,6 +182,13 @@ class Flow_Activator {
                             error_log("WooCommerce customer created for successful subscription - Email: {$subscription_data->email}");
                         }
 
+                        // Store Flow subscription data in customer meta
+                        if ($customer_id > 0) {
+                            Flow_Customer_Columns::set_customer_flow_subscription_id($customer_id, $subscription['subscriptionId'] ?? '');
+                            Flow_Customer_Columns::set_customer_flow_customer_id($customer_id, $customer);
+                            error_log("Flow Debug: Stored Flow subscription data for customer {$customer_id} - Subscription ID: " . ($subscription['subscriptionId'] ?? '') . ", Customer ID: {$customer}");
+                        }
+
                         // Create order for initial subscription
                         $order_id = $wc_integration->create_subscription_order(
                             $subscription_data->email,
@@ -225,6 +204,15 @@ class Flow_Activator {
                         );
                         if ($order_id) {
                             error_log("WooCommerce order #{$order_id} created for successful subscription - Email: {$subscription_data->email}");
+
+                            // Store Flow data in order meta as well
+                            $order = wc_get_order($order_id);
+                            if ($order) {
+                                $order->update_meta_data('_flow_subscription_id', $subscription['subscriptionId'] ?? '');
+                                $order->update_meta_data('_flow_customer_id', $customer);
+                                $order->save();
+                                error_log("Flow Debug: Stored Flow subscription data in order #{$order_id}");
+                            }
                         }
                     }
                 }
@@ -474,22 +462,6 @@ class Flow_Activator {
                 ], 400);
             }
 
-            $plan = $this->get_flow_api()->create_plan($plan_id);
-            if (!empty($plan['code'])) {
-                return new WP_REST_Response([
-                    'success' => false,
-                    'message' => 'Error al crear plan en Flow: ' . $plan['message']
-                ], 400);
-            }
-
-            $subscription = $this->get_flow_api()->create_subscription($plan['planId'], $customer);
-            if (!empty($subscription['code'])) {
-                return new WP_REST_Response([
-                    'success' => false,
-                    'message' => 'Error al crear suscripción en Flow: ' . $subscription['message']
-                ], 400);
-            }
-
             // Update subscription status in database
             global $wpdb;
             $table = $wpdb->prefix . 'flow_subscriptions';
@@ -522,6 +494,13 @@ class Flow_Activator {
                         error_log("WooCommerce customer created for successful subscription - Email: {$subscription_data->email}");
                     }
 
+                    // Store Flow subscription data in customer meta
+                    if ($customer_id > 0) {
+                        Flow_Customer_Columns::set_customer_flow_subscription_id($customer_id, $subscription['subscriptionId'] ?? '');
+                        Flow_Customer_Columns::set_customer_flow_customer_id($customer_id, $customer);
+                        error_log("Flow Debug POST: Stored Flow subscription data for customer {$customer_id} - Subscription ID: " . ($subscription['subscriptionId'] ?? '') . ", Customer ID: {$customer}");
+                    }
+
                     // Create order for initial subscription
                     $order_id = $wc_integration->create_subscription_order(
                         $subscription_data->email,
@@ -537,6 +516,15 @@ class Flow_Activator {
                     );
                     if ($order_id) {
                         error_log("WooCommerce order #{$order_id} created for successful subscription - Email: {$subscription_data->email}");
+
+                        // Store Flow data in order meta as well
+                        $order = wc_get_order($order_id);
+                        if ($order) {
+                            $order->update_meta_data('_flow_subscription_id', $subscription['subscriptionId'] ?? '');
+                            $order->update_meta_data('_flow_customer_id', $customer);
+                            $order->save();
+                            error_log("Flow Debug POST: Stored Flow subscription data in order #{$order_id}");
+                        }
                     }
                 }
             }

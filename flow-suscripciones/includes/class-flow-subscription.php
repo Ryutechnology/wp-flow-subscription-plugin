@@ -2,15 +2,14 @@
 if (!defined('ABSPATH')) exit;
 
 class Flow_Subscription {
-    
     private $database;
     private $api;
-    
+
     public function __construct() {
         $this->database = new Flow_Database();
         $this->api = new Flow_API();
     }
-    
+
     /**
      * Create a new subscription
      */
@@ -22,7 +21,7 @@ class Flow_Subscription {
                 return ['success' => false, 'message' => "Campo requerido: {$field}"];
             }
         }
-        
+
         // Sanitize data
         $clean_data = [
             'email' => sanitize_email($data['email']),
@@ -111,7 +110,7 @@ class Flow_Subscription {
             $this->database->delete_subscription($subscription_id);
             return ['success' => false, 'message' => 'Error al registrar tarjeta: ' . $register_result['message']];
         }
-        
+
         return [
             'success' => true,
             'subscription_id' => $subscription_id,
@@ -119,80 +118,80 @@ class Flow_Subscription {
             'token' => $register_result['token'] ?? null
         ];
     }
-    
+
     /**
      * Activate a subscription
      */
     public function activate_subscription($subscription_id, $mandate_id = null) {
         $subscription = $this->database->get_subscription($subscription_id);
-        
+
         if (!$subscription) {
             return ['success' => false, 'message' => 'Suscripción no encontrada'];
         }
-        
+
         $update_data = ['status' => 'activo'];
         if ($mandate_id) {
             $update_data['mandato_id'] = $mandate_id;
         }
-        
+
         $result = $this->database->update_subscription($subscription_id, $update_data);
-        
+
         if ($result === false) {
             return ['success' => false, 'message' => 'Error al activar suscripción'];
         }
-        
+
         do_action('flow_subscription_activated', $subscription_id, $subscription);
-        
+
         return ['success' => true, 'message' => 'Suscripción activada exitosamente'];
     }
-    
+
     /**
      * Cancel a subscription
      */
     public function cancel_subscription($subscription_id) {
         $subscription = $this->database->get_subscription($subscription_id);
-        
+
         if (!$subscription) {
             return ['success' => false, 'message' => 'Suscripción no encontrada'];
         }
-        
+
         $result = $this->database->update_subscription($subscription_id, ['status' => 'cancelado']);
-        
+
         if ($result === false) {
             return ['success' => false, 'message' => 'Error al cancelar suscripción'];
         }
-        
+
         do_action('flow_subscription_cancelled', $subscription_id, $subscription);
-        
+
         return ['success' => true, 'message' => 'Suscripción cancelada exitosamente'];
     }
-    
+
     /**
      * Process recurring payment
      */
     public function process_recurring_payment($subscription_id) {
         $subscription = $this->database->get_subscription($subscription_id);
-        
+
         if (!$subscription) {
             return ['success' => false, 'message' => 'Suscripción no encontrada'];
         }
-        
+
         if ($subscription->status !== 'activo') {
             return ['success' => false, 'message' => 'Suscripción no está activa'];
         }
-        
+
         if (empty($subscription->mandato_id)) {
             return ['success' => false, 'message' => 'No hay mandato asociado a la suscripción'];
         }
-        
+
         $description = "Pago recurrente - {$subscription->plan_id} - {$subscription->email}";
-        
+
         $charge_result = $this->api->charge_mandate(
-            $subscription->mandato_id, 
-            $subscription->amount, 
+            $subscription->mandato_id,
+            $subscription->amount,
             $description
         );
-        
+
         if (!empty($charge_result['code'])) {
             return ['success' => false, 'message' => 'Error al procesar pago: ' . $charge_result['message']];
         }
