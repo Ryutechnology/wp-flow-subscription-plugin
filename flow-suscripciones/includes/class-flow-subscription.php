@@ -241,6 +241,20 @@ class Flow_Subscription {
     public function get_subscription_by_email($email) {
         return $this->database->get_subscription_by_email($email);
     }
+
+    /**
+     * Get subscription by Flow subscription ID
+     */
+    public function get_subscription_by_flow_subscription_id($flow_subscription_id) {
+        return $this->database->get_subscription_by_flow_subscription_id($flow_subscription_id);
+    }
+
+    /**
+     * Get subscription by WooCommerce order ID
+     */
+    public function get_subscription_by_wc_order_id($wc_order_id) {
+        return $this->database->get_subscription_by_wc_order_id($wc_order_id);
+    }
     
     /**
      * Get all subscriptions

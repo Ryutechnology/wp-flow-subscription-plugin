@@ -70,7 +70,7 @@ class Flow_Admin {
                         <td>' . esc_html($r->city) . '</td>
                         <td>' . esc_html($r->amount) . '</td>
                         <td>' . esc_html($r->status) . '</td>
-                        <td>' . esc_html($r->mandato_id) . '</td>
+                        <td>' . esc_html($r->flow_subscription_id) . '</td>
                         <td>' . esc_html($r->created_at) . '</td>
                       </tr>';
             }

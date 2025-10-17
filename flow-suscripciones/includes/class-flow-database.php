@@ -15,29 +15,26 @@ class Flow_Database {
      */
     public function insert_subscription($data) {
         global $wpdb;
-        
+
         $defaults = [
             'status' => 'pendiente',
             'created_at' => current_time('mysql')
         ];
-        
+
         $data = wp_parse_args($data, $defaults);
-        
+
         $result = $wpdb->insert($this->table_name, $data);
-        
+
         if ($result === false) {
             return false;
         }
-        
+
         return $wpdb->insert_id;
     }
 
-    /**
-     * Update subscription
-     */
     public function update_subscription($id, $data) {
         global $wpdb;
-        
+
         return $wpdb->update(
             $this->table_name,
             $data,
@@ -45,12 +42,9 @@ class Flow_Database {
         );
     }
 
-    /**
-     * Get subscription by ID
-     */
     public function get_subscription($id) {
         global $wpdb;
-        
+
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$this->table_name} WHERE id = %d",
             $id
@@ -78,6 +72,30 @@ class Flow_Database {
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$this->table_name} WHERE mandato_id = %s",
             $mandate_id
+        ));
+    }
+
+    /**
+     * Get subscription by Flow subscription ID
+     */
+    public function get_subscription_by_flow_subscription_id($flow_subscription_id) {
+        global $wpdb;
+
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$this->table_name} WHERE flow_subscription_id = %s",
+            $flow_subscription_id
+        ));
+    }
+
+    /**
+     * Get subscription by WooCommerce order ID
+     */
+    public function get_subscription_by_wc_order_id($wc_order_id) {
+        global $wpdb;
+
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$this->table_name} WHERE wc_order_id = %d",
+            $wc_order_id
         ));
     }
 
