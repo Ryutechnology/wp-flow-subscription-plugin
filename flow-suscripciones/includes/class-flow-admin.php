@@ -57,7 +57,7 @@ class Flow_Admin {
         echo '<div class="wrap"><h1>Suscriptores</h1>';
         echo '<table class="widefat"><thead><tr>
                 <th>ID</th><th>Nombre</th><th>Email</th><th>Dirección</th>
-                <th>Ciudad</th><th>Monto</th><th>Status</th><th>Mandato</th><th>Creado</th>
+                <th>Ciudad</th><th>Monto</th><th>Status</th><th>FlowSubscriptionId</th><th>Creado</th>
               </tr></thead><tbody>';
 
         if ($rows) {

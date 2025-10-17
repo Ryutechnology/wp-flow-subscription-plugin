@@ -57,8 +57,10 @@ class Flow_Activator {
         require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
         dbDelta( $sql );
 
-        // Add flow_customer_id column to WooCommerce customer lookup table
+        // Add Flow columns to WooCommerce customer lookup table
         $wc_customer_lookup_table = $wpdb->prefix . 'wc_customer_lookup';
+
+        // Add flow_customer_id column
         $column_exists = $wpdb->get_results($wpdb->prepare(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = %s AND COLUMN_NAME = 'flow_customer_id'",
             $wc_customer_lookup_table
@@ -67,6 +69,45 @@ class Flow_Activator {
             $result = $wpdb->query($wpdb->prepare("ALTER TABLE %i ADD COLUMN flow_customer_id VARCHAR(100) DEFAULT NULL", $wc_customer_lookup_table));
             if ($result === false) {
                 error_log('Flow Activator: Failed to add flow_customer_id column to ' . $wc_customer_lookup_table);
+            } else {
+                error_log('Flow Activator: Successfully added flow_customer_id column to ' . $wc_customer_lookup_table);
+            }
+        }
+
+        // Add flow_subscription_id column
+        $column_exists = $wpdb->get_results($wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = %s AND COLUMN_NAME = 'flow_subscription_id'",
+            $wc_customer_lookup_table
+        ));
+        if (empty($column_exists)) {
+            $result = $wpdb->query($wpdb->prepare("ALTER TABLE %i ADD COLUMN flow_subscription_id VARCHAR(100) DEFAULT NULL", $wc_customer_lookup_table));
+            if ($result === false) {
+                error_log('Flow Activator: Failed to add flow_subscription_id column to ' . $wc_customer_lookup_table);
+            } else {
+                error_log('Flow Activator: Successfully added flow_subscription_id column to ' . $wc_customer_lookup_table);
+            }
+        }
+
+        // Add flow_subscription_status column
+        $column_exists = $wpdb->get_results($wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = %s AND COLUMN_NAME = 'flow_subscription_status'",
+            $wc_customer_lookup_table
+        ));
+        if (empty($column_exists)) {
+            $result = $wpdb->query($wpdb->prepare("ALTER TABLE %i ADD COLUMN flow_subscription_status VARCHAR(20) DEFAULT NULL", $wc_customer_lookup_table));
+            if ($result === false) {
+                error_log('Flow Activator: Failed to add flow_subscription_status column to ' . $wc_customer_lookup_table);
+            } else {
+                error_log('Flow Activator: Successfully added flow_subscription_status column to ' . $wc_customer_lookup_table);
+            }
+        }
+
+        // Sync existing Flow data to customer lookup table
+        if (class_exists('Flow_WooCommerce')) {
+            $wc_integration = new Flow_WooCommerce();
+            if ($wc_integration->is_woocommerce_available()) {
+                $synced_count = $wc_integration->sync_flow_data_to_customer_table();
+                error_log("Flow Activator: Synchronized {$synced_count} customers during activation");
             }
         }
     }
@@ -182,10 +223,19 @@ class Flow_Activator {
                             error_log("WooCommerce customer created for successful subscription - Email: {$subscription_data->email}");
                         }
 
-                        // Store Flow subscription data in customer meta
+                        // Store Flow subscription data in customer meta and WooCommerce customer table
                         if ($customer_id > 0) {
                             Flow_Customer_Columns::set_customer_flow_subscription_id($customer_id, $subscription['subscriptionId'] ?? '');
                             Flow_Customer_Columns::set_customer_flow_customer_id($customer_id, $customer);
+
+                            // Update WooCommerce customer lookup table
+                            $wc_integration->update_customer_flow_data(
+                                $customer_id,
+                                $customer,
+                                $subscription['subscriptionId'] ?? '',
+                                'active'
+                            );
+
                             error_log("Flow Debug: Stored Flow subscription data for customer {$customer_id} - Subscription ID: " . ($subscription['subscriptionId'] ?? '') . ", Customer ID: {$customer}");
                         }
 
@@ -494,10 +544,19 @@ class Flow_Activator {
                         error_log("WooCommerce customer created for successful subscription - Email: {$subscription_data->email}");
                     }
 
-                    // Store Flow subscription data in customer meta
+                    // Store Flow subscription data in customer meta and WooCommerce customer table
                     if ($customer_id > 0) {
                         Flow_Customer_Columns::set_customer_flow_subscription_id($customer_id, $subscription['subscriptionId'] ?? '');
                         Flow_Customer_Columns::set_customer_flow_customer_id($customer_id, $customer);
+
+                        // Update WooCommerce customer lookup table
+                        $wc_integration->update_customer_flow_data(
+                            $customer_id,
+                            $customer,
+                            $subscription['subscriptionId'] ?? '',
+                            'active'
+                        );
+
                         error_log("Flow Debug POST: Stored Flow subscription data for customer {$customer_id} - Subscription ID: " . ($subscription['subscriptionId'] ?? '') . ", Customer ID: {$customer}");
                     }
 

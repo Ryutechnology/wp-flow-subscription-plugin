@@ -155,6 +155,12 @@ class Flow_Suscripciones {
 
             // Load Flow payment test tool
             require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'test-flow-payment.php';
+
+            // Load customer columns debug tool
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'debug-customer-columns.php';
+
+            // Load AJAX endpoint test tool
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'test-ajax-endpoint.php';
         } catch (Exception $e) {
             add_action('admin_notices', function() use ($e) {
                 echo '<div class="notice notice-error"><p>';
