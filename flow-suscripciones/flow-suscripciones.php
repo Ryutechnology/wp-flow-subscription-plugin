@@ -115,6 +115,9 @@ class Flow_Suscripciones {
             // Initialize WooCommerce integration
             new Flow_WooCommerce();
 
+            // Initialize customer columns
+            new Flow_Customer_Columns();
+
             // Load debug tools if WP_DEBUG is enabled
             if (defined('WP_DEBUG') && WP_DEBUG) {
                 require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'debug-payment-gateway.php';
