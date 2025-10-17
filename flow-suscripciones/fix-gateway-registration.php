@@ -204,11 +204,23 @@ function flow_register_payment_gateway() {
                 $order->update_meta_data('_flow_card_registration_data', $card_registration_response);
                 $order->update_meta_data('_flow_subscription_amount', $amount);
 
-                // Store Flow subscription data in customer meta (for immediate tracking)
+                // Store Flow subscription data in customer meta and WooCommerce customer table (for immediate tracking)
                 $wc_customer_id = $order->get_customer_id();
                 if ($wc_customer_id > 0) {
                     Flow_Customer_Columns::set_customer_flow_subscription_id($wc_customer_id, $subscription_id);
                     Flow_Customer_Columns::set_customer_flow_customer_id($wc_customer_id, $customer_id);
+
+                    // Update WooCommerce customer lookup table
+                    $wc_integration = new Flow_WooCommerce();
+                    if ($wc_integration->is_woocommerce_available()) {
+                        $wc_integration->update_customer_flow_data(
+                            $wc_customer_id,
+                            $customer_id,
+                            $subscription_id,
+                            'pending' // Initially pending until card registration is completed
+                        );
+                    }
+
                     error_log("Flow Gateway: Stored subscription data for customer {$wc_customer_id} - Subscription ID: {$subscription_id}, Customer ID: {$customer_id}");
                 }
 

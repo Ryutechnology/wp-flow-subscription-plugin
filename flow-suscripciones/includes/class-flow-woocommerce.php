@@ -211,7 +211,7 @@ class Flow_WooCommerce {
      */
     public function update_customer_stats($email, $order_count_increment = 1, $amount_spent = 0) {
         global $wpdb;
-        
+
         $customer = $this->get_customer_by_email($email);
         if (!$customer) {
             return false;
@@ -224,6 +224,121 @@ class Flow_WooCommerce {
             ],
             ['email' => $email]
         );
+    }
+
+    /**
+     * Update Flow subscription data in WooCommerce customer lookup table
+     */
+    public function update_customer_flow_data($customer_id, $flow_customer_id = null, $flow_subscription_id = null, $flow_subscription_status = null) {
+        global $wpdb;
+
+        if (!$customer_id || $customer_id <= 0) {
+            return false;
+        }
+
+        $update_data = [];
+
+        if ($flow_customer_id !== null) {
+            $update_data['flow_customer_id'] = $flow_customer_id;
+        }
+
+        if ($flow_subscription_id !== null) {
+            $update_data['flow_subscription_id'] = $flow_subscription_id;
+        }
+
+        if ($flow_subscription_status !== null) {
+            $update_data['flow_subscription_status'] = $flow_subscription_status;
+        }
+
+        if (empty($update_data)) {
+            return false;
+        }
+
+        $result = $wpdb->update(
+            $wpdb->prefix . 'wc_customer_lookup',
+            $update_data,
+            ['customer_id' => $customer_id]
+        );
+
+        if ($result !== false) {
+            error_log('Flow WooCommerce: Updated customer lookup table for customer ' . $customer_id . ' with Flow data: ' . json_encode($update_data));
+        } else {
+            error_log('Flow WooCommerce: Failed to update customer lookup table for customer ' . $customer_id);
+        }
+
+        return $result !== false;
+    }
+
+    /**
+     * Update Flow subscription data by email
+     */
+    public function update_customer_flow_data_by_email($email, $flow_customer_id = null, $flow_subscription_id = null, $flow_subscription_status = null) {
+        global $wpdb;
+
+        $customer = $this->get_customer_by_email($email);
+        if (!$customer) {
+            return false;
+        }
+
+        return $this->update_customer_flow_data($customer->customer_id, $flow_customer_id, $flow_subscription_id, $flow_subscription_status);
+    }
+
+    /**
+     * Synchronize existing user meta data with WooCommerce customer lookup table
+     */
+    public function sync_flow_data_to_customer_table() {
+        if (!$this->is_woocommerce_available()) {
+            return false;
+        }
+
+        global $wpdb;
+
+        // Get all customers with Flow subscription data in user meta
+        $users_with_flow_data = get_users(array(
+            'meta_query' => array(
+                'relation' => 'OR',
+                array(
+                    'key' => '_flow_subscription_id',
+                    'compare' => 'EXISTS'
+                ),
+                array(
+                    'key' => '_flow_customer_id',
+                    'compare' => 'EXISTS'
+                )
+            ),
+            'role' => 'customer'
+        ));
+
+        $synced_count = 0;
+
+        foreach ($users_with_flow_data as $user) {
+            $customer = $this->get_customer_by_email($user->user_email);
+            if (!$customer) {
+                continue;
+            }
+
+            $flow_subscription_id = get_user_meta($user->ID, '_flow_subscription_id', true);
+            $flow_customer_id = get_user_meta($user->ID, '_flow_customer_id', true);
+
+            // Determine status based on current subscription state
+            $status_data = Flow_Customer_Columns::get_subscription_status($user->ID);
+            $flow_status = $status_data['status'] ?? 'inactive';
+
+            // Update the customer lookup table
+            $result = $this->update_customer_flow_data(
+                $customer->customer_id,
+                $flow_customer_id ?: null,
+                $flow_subscription_id ?: null,
+                $flow_status !== 'none' ? $flow_status : null
+            );
+
+            if ($result) {
+                $synced_count++;
+            }
+        }
+
+        error_log("Flow WooCommerce: Synchronized {$synced_count} customers with Flow data to customer lookup table");
+        return $synced_count;
     }
 
     /**
