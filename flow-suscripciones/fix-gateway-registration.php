@@ -161,49 +161,7 @@ function flow_register_payment_gateway() {
 
                 $customer_id = $customer_response['customerId'];
 
-                // Step 3: Create subscription
-                $subscription_response = $flow_api->create_subscription($plan_id, $customer_id);
-
-                if (isset($subscription_response['code'])) {
-                    $order->add_order_note('Error creating Flow subscription: ' . $subscription_response['message']);
-                    wc_add_notice('Error creando suscripción: ' . $subscription_response['message'], 'error');
-                    return array('result' => 'fail');
-                }
-
-                if (!isset($subscription_response['subscriptionId'])) {
-                    $order->add_order_note('Invalid Flow subscription response: missing subscriptionId');
-                    wc_add_notice('Error: Respuesta inválida al crear suscripción.', 'error');
-                    return array('result' => 'fail');
-                }
-
-                $subscription_id = $subscription_response['subscriptionId'];
-
-                // Store subscription in database
-                $database = new Flow_Database();
-                $db_subscription_data = array(
-                    'email' => $customer_email,
-                    'name' => $customer_name,
-                    'address' => $customer_address,
-                    'city' => $customer_city,
-                    'plan_id' => $plan_id,
-                    'amount' => $amount,
-                    'status' => 'pendiente',
-                    'flow_customer_id' => $customer_id,
-                    'flow_subscription_id' => $subscription_id,
-                    'wc_order_id' => $order_id
-                );
-
-                $db_subscription_id = $database->insert_subscription($db_subscription_data);
-                if ($db_subscription_id) {
-                    $order->add_order_note('Subscription created in database with ID: ' . $db_subscription_id);
-                    $order->update_meta_data('_flow_db_subscription_id', $db_subscription_id);
-                    error_log("Flow Gateway: Created database subscription ID {$db_subscription_id} for Flow subscription {$subscription_id}");
-                } else {
-                    error_log("Flow Gateway: Failed to create database subscription for Flow subscription {$subscription_id}");
-                    $order->add_order_note('Warning: Failed to create subscription record in database');
-                }
-
-                // Step 4: Register credit card for the customer
+                // Step 3: Register credit card for the customer (subscription will be created after successful registration)
                 $url_return = rest_url('flow/v1/return') . '?plan_id=' . $plan_id;
                 $card_registration_response = $flow_api->register_credit_card($customer_id, $url_return);
 
@@ -219,34 +177,33 @@ function flow_register_payment_gateway() {
                     return array('result' => 'fail');
                 }
 
-                // Store Flow subscription data in order meta
+                // Store Flow data in order meta (subscription will be created after card registration)
                 $order->update_meta_data('_flow_token', $card_registration_response['token']);
                 $order->update_meta_data('_flow_plan_id', $plan_id);
-                $order->update_meta_data('_flow_subscription_id', $subscription_id);
                 $order->update_meta_data('_flow_customer_id', $customer_id);
                 $order->update_meta_data('_flow_customer_email', $customer_email);
                 $order->update_meta_data('_flow_customer_data', $customer_response);
                 $order->update_meta_data('_flow_card_registration_data', $card_registration_response);
                 $order->update_meta_data('_flow_subscription_amount', $amount);
+                $order->update_meta_data('_flow_subscription_pending', 'yes'); // Flag to indicate subscription needs to be created
 
-                // Store Flow subscription data in customer meta and WooCommerce customer table (for immediate tracking)
+                // Store Flow customer data (subscription will be created after card registration)
                 $wc_customer_id = $order->get_customer_id();
                 if ($wc_customer_id > 0) {
-                    Flow_Customer_Columns::set_customer_flow_subscription_id($wc_customer_id, $subscription_id);
                     Flow_Customer_Columns::set_customer_flow_customer_id($wc_customer_id, $customer_id);
 
-                    // Update WooCommerce customer lookup table
+                    // Update WooCommerce customer lookup table with customer ID only
                     $wc_integration = new Flow_WooCommerce();
                     if ($wc_integration->is_woocommerce_available()) {
                         $wc_integration->update_customer_flow_data(
                             $wc_customer_id,
                             $customer_id,
-                            $subscription_id,
-                            'pending' // Initially pending until card registration is completed
+                            '', // No subscription ID yet
+                            'pending_card' // Pending card registration
                         );
                     }
 
-                    error_log("Flow Gateway: Stored subscription data for customer {$wc_customer_id} - Subscription ID: {$subscription_id}, Customer ID: {$customer_id}");
+                    error_log("Flow Gateway: Stored customer data for customer {$wc_customer_id} - Customer ID: {$customer_id} (subscription will be created after card registration)");
                 }
 
                 // Mark order as pending credit card registration

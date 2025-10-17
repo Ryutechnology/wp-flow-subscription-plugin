@@ -354,31 +354,120 @@ class Flow_Activator {
                 ], 400);
             }
 
-            // Update subscription status in database
+            // First, find and get the WooCommerce order to create the Flow subscription
             global $wpdb;
             $table = $wpdb->prefix . 'flow_subscriptions';
-            $wpdb->update(
-                $table,
-                [
+
+            // Look for pending orders that need subscription creation
+            $pending_orders = wc_get_orders(array(
+                'limit' => 10,
+                'status' => 'pending',
+                'meta_query' => array(
+                    array(
+                        'key' => '_flow_subscription_pending',
+                        'value' => 'yes',
+                        'compare' => '='
+                    ),
+                    array(
+                        'key' => '_flow_customer_id',
+                        'value' => $customer,
+                        'compare' => '='
+                    )
+                )
+            ));
+
+            $subscription_id = null;
+            $order = null;
+
+            if (!empty($pending_orders)) {
+                $order = $pending_orders[0];
+                $plan_id = $order->get_meta('_flow_plan_id');
+                $customer_id = $order->get_meta('_flow_customer_id');
+
+                // Now create the Flow subscription
+                $flow_api = $this->get_flow_api();
+                $subscription_response = $flow_api->create_subscription($plan_id, $customer_id);
+
+                if (isset($subscription_response['code'])) {
+                    error_log("Flow Return: Error creating subscription: " . $subscription_response['message']);
+                    // Handle subscription creation failure
+                    $failure_url = add_query_arg([
+                        'error' => 'Error creando suscripción: ' . $subscription_response['message'],
+                        'error_code' => $subscription_response['code']
+                    ], home_url('/suscripcion-fallo/'));
+                    wp_redirect($failure_url);
+                    exit;
+                }
+
+                if (!isset($subscription_response['subscriptionId'])) {
+                    error_log("Flow Return: Invalid subscription response: missing subscriptionId");
+                    $failure_url = add_query_arg([
+                        'error' => 'Respuesta inválida al crear suscripción',
+                        'error_code' => 'invalid_subscription_response'
+                    ], home_url('/suscripcion-fallo/'));
+                    wp_redirect($failure_url);
+                    exit;
+                }
+
+                $subscription_id = $subscription_response['subscriptionId'];
+
+                // Update order with subscription ID
+                $order->update_meta_data('_flow_subscription_id', $subscription_id);
+                $order->delete_meta_data('_flow_subscription_pending');
+                $order->save();
+
+                error_log("Flow Return: Created Flow subscription {$subscription_id} for order {$order->get_id()}");
+            }
+
+            // Create subscription in database only after Flow subscription is created
+            if ($subscription_id && $order) {
+                $database = new Flow_Database();
+                $db_subscription_data = array(
+                    'email' => $order->get_billing_email(),
+                    'name' => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
+                    'address' => $order->get_billing_address_1(),
+                    'city' => $order->get_billing_city(),
+                    'plan_id' => $order->get_meta('_flow_plan_id'),
+                    'amount' => intval($order->get_total()),
                     'status' => 'activo',
-                    'mandato_id' => $subscription['subscriptionId'] ?? null,
-                    'flow_subscription_id' => $subscription['subscriptionId'] ?? null
-                ],
-                ['id' => $plan_info['subscription_id']],
-                ['%s', '%s', '%s'],
-                ['%d']
-            );
+                    'flow_customer_id' => $customer,
+                    'flow_subscription_id' => $subscription_id,
+                    'wc_order_id' => $order->get_id(),
+                    'mandato_id' => $subscription_id
+                );
 
-            // Create WooCommerce customer and order when subscription is successful
+                $db_subscription_id = $database->insert_subscription($db_subscription_data);
+                if ($db_subscription_id) {
+                    $order->update_meta_data('_flow_db_subscription_id', $db_subscription_id);
+                    $order->save();
+                    error_log("Flow Return: Created database subscription {$db_subscription_id} for Flow subscription {$subscription_id}");
+                }
+
+                // Update plan_info for later use
+                $plan_info = [
+                    'plan' => $order->get_meta('_flow_plan_id'),
+                    'amount' => intval($order->get_total()),
+                    'subscription_id' => $db_subscription_id,
+                    'customer_id' => $customer
+                ];
+            } else {
+                error_log("Flow Return: Could not create subscription - missing subscription_id or order");
+            }
+
+            // Update WooCommerce customer and order when subscription is successful
             $wc_integration = new Flow_WooCommerce();
-            if ($wc_integration->is_woocommerce_available()) {
-                // Get subscription details for WooCommerce integration
-                $subscription_data = $wpdb->get_row($wpdb->prepare(
-                    "SELECT * FROM $table WHERE id = %d",
-                    $plan_info['subscription_id']
-                ));
+            if ($wc_integration->is_woocommerce_available() && $order) {
+                // Use order data instead of subscription data since we just created it
+                $subscription_data = (object) array(
+                    'id' => $plan_info['subscription_id'] ?? null,
+                    'email' => $order->get_billing_email(),
+                    'name' => $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(),
+                    'city' => $order->get_billing_city(),
+                    'address' => $order->get_billing_address_1(),
+                    'wc_order_id' => $order->get_id()
+                );
 
-                if ($subscription_data) {
+                if ($subscription_data->email) {
                     // Create customer
                     $customer_id = $wc_integration->get_or_create_wc_customer(
                         $subscription_data->email,
@@ -392,18 +481,18 @@ class Flow_Activator {
 
                     // Store Flow subscription data in customer meta and WooCommerce customer table
                     if ($customer_id > 0) {
-                        Flow_Customer_Columns::set_customer_flow_subscription_id($customer_id, $subscription['subscriptionId'] ?? '');
+                        Flow_Customer_Columns::set_customer_flow_subscription_id($customer_id, $subscription_id);
                         Flow_Customer_Columns::set_customer_flow_customer_id($customer_id, $customer);
 
                         // Update WooCommerce customer lookup table
                         $wc_integration->update_customer_flow_data(
                             $customer_id,
                             $customer,
-                            $subscription['subscriptionId'] ?? '',
+                            $subscription_id,
                             'active'
                         );
 
-                        error_log("Flow Debug POST: Stored Flow subscription data for customer {$customer_id} - Subscription ID: " . ($subscription['subscriptionId'] ?? '') . ", Customer ID: {$customer}");
+                        error_log("Flow Debug: Stored Flow subscription data for customer {$customer_id} - Subscription ID: {$subscription_id}, Customer ID: {$customer}");
                     }
 
                     // Find and update existing order instead of creating new one
@@ -414,13 +503,13 @@ class Flow_Activator {
                             $order->update_status('processing', 'Flow card registration successful. Subscription activated.');
 
                             // Update Flow data in order meta
-                            $order->update_meta_data('_flow_subscription_id', $subscription['subscriptionId'] ?? '');
+                            $order->update_meta_data('_flow_subscription_id', $subscription_id);
                             $order->update_meta_data('_flow_customer_id', $customer);
                             $order->update_meta_data('_flow_payment_complete', 'yes');
                             $order->update_meta_data('_flow_card_registration_complete', current_time('mysql'));
                             $order->save();
 
-                            error_log("Flow Debug POST: Updated existing order #{$subscription_data->wc_order_id} to processing status - Email: {$subscription_data->email}");
+                            error_log("Flow Debug: Updated existing order #{$subscription_data->wc_order_id} to processing status - Email: {$subscription_data->email}");
                         } else {
                             error_log("Flow Debug POST: Could not find order #{$subscription_data->wc_order_id} for subscription - Email: {$subscription_data->email}");
                         }
