@@ -127,7 +127,7 @@ function flow_register_payment_gateway() {
                 $customer_city = $order->get_billing_city();
 
                 // Step 1: Create or get subscription plan
-                $plan_name = 'subs_cart' . $order_number . ' - $' . $amount;
+                $plan_name = 'subs_cart' . $order_number . '_$' . $amount;
                 $plan_response = $flow_api->create_plan($plan_name, $amount);
 
                 if (isset($plan_response['error'])) {
@@ -178,8 +178,33 @@ function flow_register_payment_gateway() {
 
                 $subscription_id = $subscription_response['subscriptionId'];
 
+                // Store subscription in database
+                $database = new Flow_Database();
+                $db_subscription_data = array(
+                    'email' => $customer_email,
+                    'name' => $customer_name,
+                    'address' => $customer_address,
+                    'city' => $customer_city,
+                    'plan_id' => $plan_id,
+                    'amount' => $amount,
+                    'status' => 'pendiente',
+                    'flow_customer_id' => $customer_id,
+                    'flow_subscription_id' => $subscription_id,
+                    'wc_order_id' => $order_id
+                );
+
+                $db_subscription_id = $database->insert_subscription($db_subscription_data);
+                if ($db_subscription_id) {
+                    $order->add_order_note('Subscription created in database with ID: ' . $db_subscription_id);
+                    $order->update_meta_data('_flow_db_subscription_id', $db_subscription_id);
+                    error_log("Flow Gateway: Created database subscription ID {$db_subscription_id} for Flow subscription {$subscription_id}");
+                } else {
+                    error_log("Flow Gateway: Failed to create database subscription for Flow subscription {$subscription_id}");
+                    $order->add_order_note('Warning: Failed to create subscription record in database');
+                }
+
                 // Step 4: Register credit card for the customer
-                $url_return = rest_url('flow/v1/return') . '?order_id=' . $order_id;
+                $url_return = rest_url('flow/v1/return') . '?plan_id=' . $plan_id;
                 $card_registration_response = $flow_api->register_credit_card($customer_id, $url_return);
 
                 if (isset($card_registration_response['code'])) {
