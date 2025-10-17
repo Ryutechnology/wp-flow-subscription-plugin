@@ -258,62 +258,6 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
     }
 
     /**
-     * Create Flow payment
-     */
-    private function create_flow_payment($payment_data) {
-        // Get API credentials
-        $api_key = $this->api_key ?: get_option('flow_api_key');
-        $secret_key = $this->secret_key ?: get_option('flow_secret_key');
-
-        if (empty($api_key) || empty($secret_key)) {
-            return array('error' => 'Credenciales Flow no configuradas');
-        }
-
-        // Prepare parameters for Flow API
-        $params = array(
-            'apiKey' => $api_key,
-            'commerceOrder' => $payment_data['commerceOrder'],
-            'subject' => $payment_data['subject'],
-            'amount' => $payment_data['amount'],
-            'currency' => $payment_data['currency'],
-            'email' => $payment_data['email'],
-            'urlConfirmation' => $payment_data['urlConfirmation'],
-            'urlReturn' => $payment_data['urlReturn']
-        );
-
-        // Sort parameters for signature
-        ksort($params);
-
-        // Create signature
-        $params['s'] = hash_hmac('sha256', urldecode(http_build_query($params)), $secret_key);
-
-        // Determine API URL based on sandbox mode
-        $api_url = $this->sandbox ? 'https://sandbox.flow.cl/api/payment/create' : 'https://www.flow.cl/api/payment/create';
-
-        // Make API request
-        $response = wp_remote_post($api_url, array(
-            'body' => $params,
-            'timeout' => 30,
-            'headers' => array(
-                'Content-Type' => 'application/x-www-form-urlencoded'
-            )
-        ));
-
-        if (is_wp_error($response)) {
-            return array('error' => 'Error de conexión: ' . $response->get_error_message());
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return array('error' => 'Respuesta JSON inválida de Flow');
-        }
-
-        return $data;
-    }
-
-    /**
      * Webhook handler
      */
     public function webhook_handler() {
