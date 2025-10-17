@@ -76,6 +76,15 @@ class Flow_Cron {
         }
     }
 
+    public function get_customer_by_email($email) {
+        global $wpdb;
+
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}wc_customer_lookup WHERE email = %s",
+            $email
+        ));
+    }
+
     /**
      * Process individual subscription charge
      */
@@ -85,12 +94,35 @@ class Flow_Cron {
             return;
         }
 
-        $description = "Cobro suscripción - {$subscription->name} ({$subscription->plan_id})";
+        $old_order = wc_get_order($subscription->order_id);
+        // get items of the old order
 
-        $charge_result = $this->get_flow_api()->charge_mandate(
-            $subscription->mandato_id,
+        $description = "Cobro suscripción - ({$subscription->plan_id})";
+        $customer = get_customer_by_email($subscription->email);
+        $wc_customer = new WC_Customer($customer_id);
+        $order = wc_create_order();
+        $order->set_billing_email($subscription->email);
+        $order->set_billing_first_name($wc_customer->get_first_name());
+        $order->set_billing_last_name($wc_customer->get_last_name());
+        $order->set_billing_city($wc_customer->get_billing_city());
+        $order->set_billing_address_1($wc_customer->get_billing_address_1());
+        $order->set_billing_state($wc_customer->get_billing_state());
+        $order->set_billing_country('CL');
+        $order->set_total($subscription->amount);
+        $order->set_status('on-hold');
+        $order->save();
+        $items = $old_order->get_items();
+        foreach ( $items as $item_id => $item ) {
+            $product_id = $item->get_product_id();
+            $quantity = $item->get_quantity();
+            $order->add_item($item);
+        }
+
+        $charge_result = $this->get_flow_api()->charge_customer(
+            $subscription->flow_customer_id,
             $subscription->amount,
-            $description
+            $description,
+            $order->get_id()
         );
 
         if (!empty($charge_result['error']) || !empty($charge_result['code'])) {
@@ -104,23 +136,10 @@ class Flow_Cron {
             $this->log_successful_charge($subscription, $charge_result);
 
             // Create WooCommerce order if integration is active
-            if ($this->get_wc_integration()->is_woocommerce_available()) {
-                $order_id = $this->get_wc_integration()->create_subscription_order(
-                    $subscription->email,
-                    $subscription->plan_id,
-                    $subscription->amount,
-                    $subscription->name,
-                    $subscription->city,
-                    $subscription->address,
-                    $subscription->product_id ?? null,
-                    $subscription->variation_id ?? null,
-                    $subscription->formato ?? null,
-                    $subscription->molienda ?? null
-                );
-
-                if ($order_id) {
-                    error_log("WooCommerce order #{$order_id} created for cron payment - Email: {$subscription->email}");
-                }
+            if($charge_result['status'] === 1) {
+                $order->payment_complete();
+                $order->add_order_note('Pago de suscripción completado exitosamente.');
+                $order->set_status('processing');
             }
         }
     }

@@ -174,7 +174,7 @@ class Flow_WooCommerce {
      */
     public function get_customer_by_email($email) {
         global $wpdb;
-        
+
         return $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}wc_customer_lookup WHERE email = %s",
             $email
