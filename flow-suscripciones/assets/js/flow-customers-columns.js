@@ -46,6 +46,13 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
                     isLeftAligned: true,
                     required: false,
                     isSortable: false,
+                },
+                {
+                    key: 'flow_subscription_url',
+                    label: __( 'Flow Dashboard', 'tu-plugin' ),
+                    isLeftAligned: true,
+                    required: false,
+                    isSortable: false,
                 }
             ];
             
@@ -159,6 +166,38 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
                                 value: status
                             };
                         }
+
+                        // Formatear Flow Subscription URL
+                        if ( currentHeader.key === 'flow_subscription_url' ) {
+                            const subscriptionId = getSubscriptionIdFromRow( row, headers );
+                            console.log( '→ Flow: Formateando URL para subscription ID', subscriptionId );
+
+                            if ( !subscriptionId || subscriptionId === '' ) {
+                                return {
+                                    ...cell,
+                                    display: '<span style="color: #999;">—</span>',
+                                    value: ''
+                                };
+                            }
+
+                            const dashboardUrl = generateFlowDashboardUrl( subscriptionId );
+                            const linkHtml = `<a href="${dashboardUrl}" target="_blank" style="
+                                color: #0073aa;
+                                text-decoration: none;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 4px;
+                            ">
+                                <span class="dashicons dashicons-external" style="font-size: 16px;"></span>
+                                Ver Dashboard
+                            </a>`;
+
+                            return {
+                                ...cell,
+                                display: linkHtml,
+                                value: dashboardUrl
+                            };
+                        }
                     }
 
                     return cell;
@@ -222,6 +261,38 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
             return tableData;
         }
     );
+
+    /**
+     * Helper function to get subscription ID from a row
+     */
+    function getSubscriptionIdFromRow( row, headers ) {
+        if ( !row || !headers ) return null;
+
+        // Find the subscription ID column index
+        const subscriptionIdIndex = headers.findIndex( header =>
+            header && header.key === 'flow_subscription_id'
+        );
+
+        if ( subscriptionIdIndex === -1 || !row[ subscriptionIdIndex ] ) return null;
+
+        const subscriptionCell = row[ subscriptionIdIndex ];
+        return subscriptionCell.value || subscriptionCell.display || null;
+    }
+
+    /**
+     * Helper function to generate Flow dashboard URL
+     */
+    function generateFlowDashboardUrl( subscriptionId ) {
+        if ( !subscriptionId ) return null;
+
+        // Determine environment - check if production constant is defined
+        const isProduction = window.flowCustomerData && window.flowCustomerData.isProduction;
+        const baseUrl = isProduction ?
+            'https://dashboard.flow.cl' :
+            'https://dashboard.sandbox.flow.cl';
+
+        return `${baseUrl}/private/suscripciones/subscriptions/details/?sus_id=${encodeURIComponent(subscriptionId)}`;
+    }
 
     /**
      * Función auxiliar para formatear el estado de Flow
@@ -292,8 +363,15 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
             idHeader.textContent = 'Flow Subscription';
             idHeader.style.cssText = 'background: #f0f0f0; font-weight: bold; padding: 8px; border: 1px solid #ddd;';
 
+            // Agregar encabezado de URL
+            const urlHeader = document.createElement( 'th' );
+            urlHeader.className = 'flow-url-header flow-column-added';
+            urlHeader.textContent = 'Flow Dashboard';
+            urlHeader.style.cssText = 'background: #f0f0f0; font-weight: bold; padding: 8px; border: 1px solid #ddd;';
+
             headerRow.appendChild( statusHeader );
             headerRow.appendChild( idHeader );
+            headerRow.appendChild( urlHeader );
 
             console.log( '✓ Flow: Encabezados agregados al DOM' );
         }
@@ -310,8 +388,13 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
                 idCell.className = 'flow-id-cell flow-column-added';
                 idCell.innerHTML = '<span style="color: #999;">Cargando...</span>';
 
+                const urlCell = document.createElement( 'td' );
+                urlCell.className = 'flow-url-cell flow-column-added';
+                urlCell.innerHTML = '<span style="color: #999;">Cargando...</span>';
+
                 row.appendChild( statusCell );
                 row.appendChild( idCell );
+                row.appendChild( urlCell );
 
                 // Intentar obtener ID del cliente
                 const links = row.querySelectorAll( 'a[href*="user-edit.php"]' );
@@ -320,20 +403,21 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
                     const userIdMatch = href.match( /user_id=(\d+)/ );
                     if ( userIdMatch ) {
                         const customerId = userIdMatch[1];
-                        fetchFlowDataForCells( customerId, statusCell, idCell );
+                        fetchFlowDataForCells( customerId, statusCell, idCell, urlCell );
                     }
                 }
             }
         } );
     }
 
-    function fetchFlowDataForCells( customerId, statusCell, idCell ) {
+    function fetchFlowDataForCells( customerId, statusCell, idCell, urlCell ) {
         console.log( '→ Flow: Fetching data for customer ID:', customerId );
 
         if ( !window.flowCustomerData ) {
             console.error( '❌ Flow: flowCustomerData not available' );
             statusCell.innerHTML = '<span style="color: #999;">Config Error</span>';
             idCell.innerHTML = '<span style="color: #999;">Config Error</span>';
+            if ( urlCell ) urlCell.innerHTML = '<span style="color: #999;">Config Error</span>';
             return;
         }
 
@@ -383,16 +467,37 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
                 idCell.innerHTML = data.data.flow_subscription_id ?
                     `<code>${data.data.flow_subscription_id}</code>` :
                     '<span style="color: #999;">—</span>';
+
+                // Handle URL cell
+                if ( urlCell ) {
+                    if ( data.data.flow_subscription_id ) {
+                        const dashboardUrl = generateFlowDashboardUrl( data.data.flow_subscription_id );
+                        urlCell.innerHTML = `<a href="${dashboardUrl}" target="_blank" style="
+                            color: #0073aa;
+                            text-decoration: none;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 4px;
+                        ">
+                            <span class="dashicons dashicons-external" style="font-size: 16px;"></span>
+                            Ver Dashboard
+                        </a>`;
+                    } else {
+                        urlCell.innerHTML = '<span style="color: #999;">—</span>';
+                    }
+                }
             } else {
                 console.error( '❌ Flow: Error response:', data );
                 statusCell.innerHTML = '<span style="color: #dc3232;">Error: ' + ( data.data || 'Unknown' ) + '</span>';
                 idCell.innerHTML = '<span style="color: #dc3232;">Error</span>';
+                if ( urlCell ) urlCell.innerHTML = '<span style="color: #dc3232;">Error</span>';
             }
         } )
         .catch( error => {
             console.error( '❌ Flow: Fetch error:', error );
             statusCell.innerHTML = '<span style="color: #dc3232;">Network Error</span>';
             idCell.innerHTML = '<span style="color: #dc3232;">Network Error</span>';
+            if ( urlCell ) urlCell.innerHTML = '<span style="color: #dc3232;">Network Error</span>';
         } );
     }
 

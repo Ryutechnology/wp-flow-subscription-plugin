@@ -124,6 +124,9 @@ class Flow_Customer_Columns {
             return $customers;
         } );
 
+        add_filter( 'woocommerce_admin_customer_list_table_columns', 'agregar_columna_custom_cliente' );
+        add_filter( 'woocommerce_admin_customer_list_table_column_value', 'mostrar_valor_columna_custom_cliente', 10, 3 );
+
 
         $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_wc_admin%'" );
         $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_wc_admin%'" );
@@ -141,7 +144,18 @@ class Flow_Customer_Columns {
         add_action('wp_ajax_nopriv_debug_flow_customer_data', array($this, 'debug_ajax_get_flow_customer_data'));
     }
 
+    public function agregar_columna_custom_cliente( $columns ) {
+        $columns['mi_columna'] = 'Mi Columna'; // ID => Título
+        return $columns;
+    }
 
+    public function mostrar_valor_columna_custom_cliente( $value, $column, $customer ) {
+        if ( 'mi_columna' === $column ) {
+            // Ejemplo: mostrar el número de pedidos del cliente
+            $value = $customer->get_order_count(); // o cualquier otro dato
+        }
+        return $value;
+    }
 
     public function init_customer_list_hooks() {
         // Check if we're on the WooCommerce customers page
@@ -253,6 +267,7 @@ class Flow_Customer_Columns {
             if ($show_columns) {
                 $columns['flow_subscription_status'] = 'Flow Status';
                 $columns['flow_subscription_id'] = 'Flow Subscription ID';
+                $columns['flow_subscription_url'] = 'Flow Dashboard';
                 error_log('Flow Customer Columns: Added columns to users table');
             }
         }
@@ -292,6 +307,17 @@ class Flow_Customer_Columns {
                 if ($flow_customer_id) {
                     $value .= '<br><small><strong>Customer ID:</strong> ' . esc_html($flow_customer_id) . '</small>';
                 }
+            } else {
+                $value = '<span style="color: #999;">Sin suscripción</span>';
+            }
+        } elseif ($column_name === 'flow_subscription_url') {
+            $subscription_url = $this->get_flow_subscription_url($user_id);
+
+            if ($subscription_url) {
+                $value = '<a href="' . esc_url($subscription_url) . '" target="_blank" style="color: #0073aa; text-decoration: none;">
+                    <span class="dashicons dashicons-external" style="font-size: 16px; vertical-align: middle;"></span>
+                    Ver Dashboard
+                </a>';
             } else {
                 $value = '<span style="color: #999;">Sin suscripción</span>';
             }
@@ -648,6 +674,7 @@ class Flow_Customer_Columns {
         if (is_admin() && function_exists('WC')) {
             $columns['flow_subscription_status_wc'] = 'Flow Status';
             $columns['flow_subscription_id_wc'] = 'Flow Subscription';
+            $columns['flow_subscription_url_wc'] = 'Flow Dashboard';
         }
 
         return $columns;
@@ -708,6 +735,17 @@ class Flow_Customer_Columns {
             } else {
                 $value = '<span style="color: #999;">-</span>';
             }
+        } elseif ($column_name === 'flow_subscription_url_wc') {
+            $subscription_url = $this->get_flow_subscription_url($user_id);
+
+            if ($subscription_url) {
+                $value = '<a href="' . esc_url($subscription_url) . '" target="_blank" style="color: #0073aa; text-decoration: none;">
+                    <span class="dashicons dashicons-external" style="font-size: 16px; vertical-align: middle;"></span>
+                    Ver Dashboard
+                </a>';
+            } else {
+                $value = '<span style="color: #999;">-</span>';
+            }
         }
 
         return $value;
@@ -721,6 +759,8 @@ class Flow_Customer_Columns {
             echo $this->get_flow_status_display($customer_id);
         } elseif ($column_name === 'flow_subscription_id_wc') {
             echo $this->get_flow_subscription_id_display($customer_id);
+        } elseif ($column_name === 'flow_subscription_url_wc') {
+            echo $this->get_flow_subscription_url_display($customer_id);
         }
     }
 
@@ -732,6 +772,8 @@ class Flow_Customer_Columns {
             echo $this->get_flow_status_display($customer_id);
         } elseif ($column_name === 'flow_subscription_id_wc') {
             echo $this->get_flow_subscription_id_display($customer_id);
+        } elseif ($column_name === 'flow_subscription_url_wc') {
+            echo $this->get_flow_subscription_url_display($customer_id);
         }
     }
 
@@ -782,6 +824,54 @@ class Flow_Customer_Columns {
 
         if ($flow_subscription_id) {
             return '<code>' . esc_html($flow_subscription_id) . '</code>';
+        } else {
+            return '<span style="color: #999;">-</span>';
+        }
+    }
+
+    /**
+     * Get Flow subscription URL for a customer
+     */
+    private function get_flow_subscription_url($user_id) {
+        // Get subscription ID from WooCommerce customer lookup table first, then fallback to user meta
+        global $wpdb;
+        $flow_subscription_id = $wpdb->get_var($wpdb->prepare(
+            "SELECT flow_subscription_id FROM {$wpdb->prefix}wc_customer_lookup WHERE customer_id = %d",
+            $user_id
+        ));
+
+        if (!$flow_subscription_id) {
+            // Fallback to user meta
+            $flow_subscription_id = get_user_meta($user_id, '_flow_subscription_id', true);
+        }
+
+        if (!$flow_subscription_id) {
+            return null;
+        }
+
+        // Determine if this is production or sandbox based on environment
+        $is_production = defined('FLOW_ENVIRONMENT') && FLOW_ENVIRONMENT === 'production';
+
+        if ($is_production) {
+            $base_url = 'https://dashboard.flow.cl';
+        } else {
+            $base_url = 'https://dashboard.sandbox.flow.cl';
+        }
+
+        return $base_url . '/private/suscripciones/subscriptions/details/?sus_id=' . urlencode($flow_subscription_id);
+    }
+
+    /**
+     * Get Flow subscription URL display HTML
+     */
+    private function get_flow_subscription_url_display($user_id) {
+        $subscription_url = $this->get_flow_subscription_url($user_id);
+
+        if ($subscription_url) {
+            return '<a href="' . esc_url($subscription_url) . '" target="_blank" style="color: #0073aa; text-decoration: none;">
+                <span class="dashicons dashicons-external" style="font-size: 16px; vertical-align: middle;"></span>
+                Ver Dashboard
+            </a>';
         } else {
             return '<span style="color: #999;">-</span>';
         }
@@ -865,7 +955,8 @@ class Flow_Customer_Columns {
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('flow_customer_data'),
             'restUrl' => rest_url('wc/v3/customers'),
-            'restNonce' => wp_create_nonce('wp_rest')
+            'restNonce' => wp_create_nonce('wp_rest'),
+            'isProduction' => defined('FLOW_ENVIRONMENT') && FLOW_ENVIRONMENT === 'production'
         ));
 
         error_log('Flow Customer Columns: Enqueued scripts for WooCommerce Admin customers page');
@@ -1072,6 +1163,10 @@ class Flow_Customer_Columns {
                 .column-flow_subscription_id_wc {
                     width: 150px;
                 }
+                .column-flow_subscription_url,
+                .column-flow_subscription_url_wc {
+                    width: 120px;
+                }
                 .flow-subscription-status {
                     display: inline-block;
                     padding: 2px 8px;
@@ -1145,6 +1240,7 @@ class Flow_Customer_Columns {
         // Always add Flow columns when this method is called
         $columns['flow_subscription_status'] = 'Flow Status';
         $columns['flow_subscription_id'] = 'Flow Subscription ID';
+        $columns['flow_subscription_url'] = 'Flow Dashboard';
 
         error_log('Flow Customer Columns: Force added columns - ' . json_encode(array_keys($columns)));
         return $columns;
