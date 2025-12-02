@@ -130,9 +130,10 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
 
         // Step 1: Create or get subscription plan
         $plan_name = 'Subscription ' . get_bloginfo('name') . ' - $' . $amount;
-        error_log('Flow Subscription: Creating plan - ' . $plan_name);
+        $payment_callback_url = $flow_api->get_payment_callback_url();
+        error_log('Flow Subscription: Creating plan - ' . $plan_name . ' with callback URL: ' . $payment_callback_url);
 
-        $plan_response = $flow_api->create_plan($plan_name, $amount);
+        $plan_response = $flow_api->create_plan($plan_name, $amount, $payment_callback_url);
         error_log('Flow Subscription: Plan response - ' . json_encode($plan_response));
 
         if (isset($plan_response['error'])) {
@@ -703,6 +704,10 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
             <tr>
                 <th>URL de Retorno:</th>
                 <td><code><?php echo home_url('/wc-api/flow_return/'); ?></code></td>
+            </tr>
+            <tr>
+                <th>URL de Callback de Pagos:</th>
+                <td><code><?php echo rest_url('flow/v1/payment-callback'); ?></code></td>
             </tr>
         </table>
         <?php
