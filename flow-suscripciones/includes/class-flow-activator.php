@@ -204,6 +204,12 @@ class Flow_Activator {
             'callback' => [$this, 'handle_flow_return_post'],
             'permission_callback' => '__return_true'
         ]);
+
+        register_rest_route('flow/v1', '/payment-callback', [
+            'methods' => 'POST',
+            'callback' => [$this, 'handle_payment_callback'],
+            'permission_callback' => '__return_true'
+        ]);
     }
 
     public function handle_flow_webhook(WP_REST_Request $request) {
@@ -584,5 +590,282 @@ class Flow_Activator {
 
         do_action('flow_subscription_cancelled', $data);
         return new WP_REST_Response(['message' => 'Subscription cancelled processed'], 200);
+    }
+
+    public function handle_payment_callback(WP_REST_Request $request) {
+        $params = $request->get_params();
+
+        error_log('Flow Payment Callback received params: ' . print_r($params, true));
+
+        // Extract token from request
+        $token = sanitize_text_field($params['token'] ?? '');
+
+        if (empty($token)) {
+            error_log('Flow Payment Callback: Missing token');
+            return new WP_REST_Response(['error' => 'Token is required'], 400);
+        }
+
+        try {
+            // Get payment status from Flow using token
+            $flow_api = $this->get_flow_api();
+            $payment_status = $flow_api->get_payment_status($token);
+
+            error_log('Flow Payment Callback: Payment status response: ' . json_encode($payment_status));
+
+            // Check for Flow API errors
+            if (isset($payment_status['code'])) {
+                error_log('Flow Payment Callback: Flow API error: ' . $payment_status['message']);
+                return new WP_REST_Response(['error' => 'Flow API error: ' . $payment_status['code']], 500);
+            }
+
+            if (isset($payment_status['code']) && isset($payment_status['message'])) {
+                error_log('Flow Payment Callback: Flow error response - Code: ' . $payment_status['code'] . ', Message: ' . $payment_status['message']);
+                return new WP_REST_Response(['error' => 'Flow error: ' . $payment_status['message']], 400);
+            }
+
+            // Extract payment information from Flow response
+            $flow_order = $payment_status['commerceOrder'] ?? '';
+            $payment_amount = $payment_status['amount'] ?? 0;
+            $payment_id = $payment_status['flowOrder'] ?? '';
+            $status = $payment_status['status'] ?? 0;
+            $customer_email = $payment_status['payer'] ?? '';
+
+            error_log("Flow Payment Callback: Commerce Order: {$flow_order}, Amount: {$payment_amount}, Status: {$status}, Payment ID: {$payment_id}, Payer: {$customer_email}");
+
+            // Process payment based on status
+            switch (intval($status)) {
+                case 1: // Payment successful
+                    $this->create_order_from_payment($payment_status, $token);
+                    break;
+
+                case 3: // Payment rejected
+                    error_log("Flow Payment Callback: Payment rejected for token: {$token}");
+                    break;
+
+                case 4: // Payment cancelled
+                    error_log("Flow Payment Callback: Payment cancelled for token: {$token}");
+                    break;
+
+                case 2: // Payment pending
+                    error_log("Flow Payment Callback: Payment pending for token: {$token}");
+                    break;
+
+                default:
+                    error_log("Flow Payment Callback: Unknown payment status: {$status} for token: {$token}");
+                    break;
+            }
+
+            // Fire action for extensions
+            do_action('flow_payment_callback_processed', $payment_status, $token);
+
+            return new WP_REST_Response(['message' => 'Payment callback processed successfully'], 200);
+
+        } catch (Exception $e) {
+            error_log('Flow Payment Callback error: ' . $e->getMessage());
+            return new WP_REST_Response(['error' => 'Internal error'], 500);
+        }
+    }
+
+    private function create_order_from_payment($payment_status, $token) {
+        $flow_order = $payment_status['commerceOrder'] ?? '';
+        $payment_amount = intval($payment_status['amount'] ?? 0);
+        $payment_id = $payment_status['flowOrder'] ?? '';
+        $customer_email = $payment_status['payer'] ?? '';
+        $payment_date = $payment_status['paymentData']['date'] ?? current_time('mysql');
+
+        error_log("Flow Payment Callback: Creating order from payment - Flow Order: {$flow_order}, Amount: {$payment_amount}, Payment ID: {$payment_id}, Email: {$customer_email}");
+
+        if (empty($customer_email)) {
+            error_log('Flow Payment Callback: Cannot create order without customer email');
+            return false;
+        }
+
+        try {
+            // Check if this is a recurring payment by looking for existing subscription
+            $subscription_orders = $this->find_subscription_by_customer($customer_email);
+            $is_recurring = !empty($subscription_orders);
+
+            if ($is_recurring) {
+                // Create recurring payment order
+                $original_order = $subscription_orders[0];
+                $new_order = $this->create_recurring_order($original_order, $payment_status, $token);
+                error_log("Flow Payment Callback: Created recurring order ID: {$new_order->get_id()} for original order: {$original_order->get_id()}");
+            } else {
+                // Create new customer order
+                $new_order = $this->create_new_customer_order($payment_status, $token);
+                error_log("Flow Payment Callback: Created new customer order ID: {$new_order->get_id()}");
+            }
+
+            // Fire action for successful payment
+            do_action('flow_payment_callback_order_created', $new_order, $payment_status, $is_recurring);
+
+            return $new_order;
+
+        } catch (Exception $e) {
+            error_log('Flow Payment Callback: Error creating order: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    private function find_subscription_by_customer($customer_email) {
+        // Look for existing subscription orders for this customer
+        return wc_get_orders([
+            'billing_email' => $customer_email,
+            'meta_query' => [
+                [
+                    'key' => '_flow_subscription_id',
+                    'compare' => 'EXISTS'
+                ]
+            ],
+            'limit' => 1,
+            'orderby' => 'date',
+            'order' => 'DESC'
+        ]);
+    }
+
+    private function create_recurring_order($original_order, $payment_status, $token) {
+        $payment_amount = intval($payment_status['amount'] ?? 0);
+        $payment_id = $payment_status['flowOrder'] ?? '';
+
+        // Create a new order based on the original subscription order
+        $recurring_order = wc_create_order([
+            'customer_id' => $original_order->get_customer_id(),
+            'status' => 'processing'
+        ]);
+
+        // Copy billing information from original order
+        $recurring_order->set_billing_email($original_order->get_billing_email());
+        $recurring_order->set_billing_first_name($original_order->get_billing_first_name());
+        $recurring_order->set_billing_last_name($original_order->get_billing_last_name());
+        $recurring_order->set_billing_address_1($original_order->get_billing_address_1());
+        $recurring_order->set_billing_city($original_order->get_billing_city());
+        $recurring_order->set_billing_phone($original_order->get_billing_phone());
+        $recurring_order->set_billing_country($original_order->get_billing_country());
+        $recurring_order->set_billing_postcode($original_order->get_billing_postcode());
+
+        // Copy shipping information if available
+        if ($original_order->get_shipping_address_1()) {
+            $recurring_order->set_shipping_email($original_order->get_shipping_email());
+            $recurring_order->set_shipping_first_name($original_order->get_shipping_first_name());
+            $recurring_order->set_shipping_last_name($original_order->get_shipping_last_name());
+            $recurring_order->set_shipping_address_1($original_order->get_shipping_address_1());
+            $recurring_order->set_shipping_city($original_order->get_shipping_city());
+            $recurring_order->set_shipping_country($original_order->get_shipping_country());
+            $recurring_order->set_shipping_postcode($original_order->get_shipping_postcode());
+        }
+
+        // Copy items from original order
+        foreach ($original_order->get_items() as $item) {
+            $recurring_order->add_product($item->get_product(), $item->get_quantity());
+        }
+
+        // Set Flow payment data
+        $recurring_order->update_meta_data('_flow_payment_id', $payment_id);
+        $recurring_order->update_meta_data('_flow_payment_amount', $payment_amount);
+        $recurring_order->update_meta_data('_flow_payment_token', $token);
+        $recurring_order->update_meta_data('_flow_payment_type', 'recurring');
+        $recurring_order->update_meta_data('_flow_original_order_id', $original_order->get_id());
+        $recurring_order->update_meta_data('_flow_subscription_id', $original_order->get_meta('_flow_subscription_id'));
+        $recurring_order->update_meta_data('_flow_customer_id', $original_order->get_meta('_flow_customer_id'));
+        $recurring_order->update_meta_data('_flow_payment_callback_data', $payment_status);
+
+        // Set payment method
+        $recurring_order->set_payment_method('flow');
+        $recurring_order->set_payment_method_title('Flow Suscripciones - Pago Recurrente');
+
+        $recurring_order->calculate_totals();
+        $recurring_order->payment_complete($payment_id);
+        $recurring_order->add_order_note("Pago recurrente completado vía Flow. Payment ID: {$payment_id}, Amount: \${$payment_amount}");
+
+        $recurring_order->save();
+
+        return $recurring_order;
+    }
+
+    private function create_new_customer_order($payment_status, $token) {
+        $payment_amount = intval($payment_status['amount'] ?? 0);
+        $payment_id = $payment_status['flowOrder'] ?? '';
+        $customer_email = $payment_status['payer'] ?? '';
+
+        // Try to get or create WooCommerce customer
+        $customer = get_user_by('email', $customer_email);
+        $customer_id = $customer ? $customer->ID : 0;
+
+        // Create new order
+        $order = wc_create_order([
+            'customer_id' => $customer_id,
+            'status' => 'processing'
+        ]);
+
+        // Set billing information (we only have email from Flow)
+        $order->set_billing_email($customer_email);
+
+        // Try to extract name from email if no other data available
+        $email_parts = explode('@', $customer_email);
+        $username = $email_parts[0];
+        $order->set_billing_first_name(ucfirst($username));
+
+        // For recurring payments, we need to look up what product/service this is for
+        // This would typically be stored in your subscription system
+        // For now, create a generic subscription product
+        $this->add_subscription_product_to_order($order, $payment_amount);
+
+        // Set Flow payment data
+        $order->update_meta_data('_flow_payment_id', $payment_id);
+        $order->update_meta_data('_flow_payment_amount', $payment_amount);
+        $order->update_meta_data('_flow_payment_token', $token);
+        $order->update_meta_data('_flow_payment_type', 'initial');
+        $order->update_meta_data('_flow_payment_callback_data', $payment_status);
+
+        // Set payment method
+        $order->set_payment_method('flow');
+        $order->set_payment_method_title('Flow Suscripciones');
+
+        $order->calculate_totals();
+        $order->payment_complete($payment_id);
+        $order->add_order_note("Pago inicial completado vía Flow callback. Payment ID: {$payment_id}, Amount: \${$payment_amount}");
+
+        $order->save();
+
+        return $order;
+    }
+
+    private function add_subscription_product_to_order($order, $amount) {
+        // Look for a default subscription product or create a virtual one
+        // This is a simplified approach - in production you'd want to match
+        // the payment to a specific product/subscription plan
+
+        // Try to find existing subscription products
+        $subscription_products = get_posts([
+            'post_type' => 'product',
+            'meta_query' => [
+                [
+                    'key' => '_price',
+                    'value' => $amount,
+                    'compare' => '='
+                ]
+            ],
+            'tax_query' => [
+                [
+                    'taxonomy' => 'product_cat',
+                    'field' => 'name',
+                    'terms' => 'Suscripciones Flow'
+                ]
+            ],
+            'posts_per_page' => 1
+        ]);
+
+        if (!empty($subscription_products)) {
+            $product = wc_get_product($subscription_products[0]->ID);
+            $order->add_product($product, 1);
+        } else {
+            // Create a virtual line item if no matching product found
+            $item = new WC_Order_Item_Product();
+            $item->set_name('Suscripción Flow - $' . $amount);
+            $item->set_quantity(1);
+            $item->set_total($amount);
+            $item->set_subtotal($amount);
+            $order->add_item($item);
+        }
     }
 }

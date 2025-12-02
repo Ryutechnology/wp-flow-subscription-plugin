@@ -88,8 +88,8 @@ class Flow_API {
     /**
      * Create or get existing plan
      */
-    public function create_plan($name, $amount = 1000) {
-        error_log('Flow API: Creating/getting plan - Name: ' . $name . ', Amount: ' . $amount);
+    public function create_plan($name, $amount = 1000, $url_callback = null) {
+        error_log('Flow API: Creating/getting plan - Name: ' . $name . ', Amount: ' . $amount . ', URL Callback: ' . $url_callback);
 
         $plan_id = $this->create_plan_id($name);
         error_log('Flow API: Generated plan ID: ' . $plan_id);
@@ -105,13 +105,21 @@ class Flow_API {
 
         error_log('Flow API: Creating new plan: ' . $plan_id);
         // Create new plan
-        return $this->request('plans/create', [
+        $plan_params = [
             'planId' => $plan_id,
             'name' => $name,
             'amount' => $amount,
             'currency' => 'CLP',
             'interval' => 3
-        ]);
+        ];
+
+        // Add URL callback if provided
+        if (!empty($url_callback)) {
+            $plan_params['urlCallback'] = $url_callback;
+            error_log('Flow API: Added URL callback to plan: ' . $url_callback);
+        }
+
+        return $this->request('plans/create', $plan_params);
     }
 
     /**
@@ -202,5 +210,22 @@ class Flow_API {
      */
     public function get_return_url() {
         return rest_url('flow/v1/return');
+    }
+
+    /**
+     * Get payment callback URL for Flow plan configuration
+     */
+    public function get_payment_callback_url() {
+        return rest_url('flow/v1/payment-callback');
+    }
+
+    /**
+     * Get payment status from Flow using token
+     */
+    public function get_payment_status($token) {
+        error_log('Flow API: Getting payment status for token: ' . $token);
+        return $this->request('payment/getStatus', [
+            'token' => $token
+        ], 'GET');
     }
 }
