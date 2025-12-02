@@ -43,7 +43,6 @@ class Flow_Loader {
             'class-flow-customer-columns.php', // Depends on WooCommerce
             'class-flow-admin.php',         // Depends on database
             'class-flow-shortcode.php',     // Depends on API, DB, WC
-            'class-flow-cron.php'           // Depends on API, DB, WC
         ];
 
         foreach ($classes as $class_file) {
@@ -66,7 +65,6 @@ class Flow_Loader {
             'Flow_WooCommerce',
             'Flow_Admin',
             'Flow_Shortcode',
-            'Flow_Cron'
         ];
 
         // Flow_Payment_Gateway is optional (only loaded if WooCommerce is available)

@@ -116,7 +116,7 @@ class Flow_Database {
     }
 
     /**
-     * Get active subscriptions for cron jobs
+     * Get active subscriptions
      */
     public function get_active_subscriptions() {
         return $this->get_all_subscriptions('activo');

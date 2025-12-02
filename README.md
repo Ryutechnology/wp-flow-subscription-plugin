@@ -142,18 +142,6 @@ POST /wp-json/flow/v1/webhook
 - `payment_failed`
 - `subscription_cancelled`
 
-## Cron Jobs
-
-### Daily Subscription Processing
-Automatically processes recurring payments daily.
-
-**Schedule:** Daily at configured time
-**Action:** `flow_daily_charges`
-
-### Failed Payment Handling
-- Tracks failed payment attempts
-- Sends customer notifications
-- Suspends subscriptions after 3 failed attempts
 
 ## Configuration
 
@@ -198,7 +186,6 @@ flow-suscripciones/
 ├── includes/
 │   ├── class-flow-activator.php    # Plugin activation/deactivation
 │   ├── class-flow-api.php          # Flow API integration
-│   ├── class-flow-cron.php         # Cron job handling
 │   ├── class-flow-database.php     # Database operations
 │   ├── class-flow-loader.php       # Plugin loader
 │   ├── class-flow-shortcode.php    # Shortcode implementation

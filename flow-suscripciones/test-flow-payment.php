@@ -144,7 +144,7 @@ add_action('wp_loaded', function() {
         echo '<li>If the subscription test was successful, the integration is working</li>';
         echo '<li>Configure the webhook URLs in your Flow dashboard</li>';
         echo '<li>Test with a real WooCommerce order to create subscriptions</li>';
-        echo '<li>Configure recurring billing schedule using Flow cron jobs</li>';
+        echo '<li>Configure recurring billing schedule manually</li>';
         echo '<li>Switch to production API credentials when ready</li>';
         echo '</ol>';
 
