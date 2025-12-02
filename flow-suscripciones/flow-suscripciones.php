@@ -21,7 +21,6 @@ class Flow_Suscripciones {
     private static $instance = null;
     private $admin;
     private $shortcode;
-    private $cron;
 
     /**
      * Singleton pattern - get instance
@@ -109,8 +108,6 @@ class Flow_Suscripciones {
             // Initialize flow return handler
             new Flow_Activator();
 
-            // Initialize cron jobs
-            $this->cron = new Flow_Cron();
 
             // Initialize WooCommerce integration
             new Flow_WooCommerce();
@@ -184,10 +181,6 @@ class Flow_Suscripciones {
      * Plugin deactivation
      */
     public function deactivate_plugin() {
-        // Clear scheduled cron jobs
-        if ($this->cron) {
-            $this->cron->clear_cron();
-        }
         
         // Flush rewrite rules
         flush_rewrite_rules();

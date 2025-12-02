@@ -187,7 +187,7 @@ class Flow_API {
     }
 
     /**
-     * Charge mandate (for cron jobs)
+     * Charge customer mandate
      */
     public function charge_customer($flow_customer_id, $amount, $subject, $commerce_order) {
         return $this->request('customer/charge', [
