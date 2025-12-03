@@ -16,7 +16,7 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
         console.error( '❌ Flow: addFilter no está disponible' );
         return;
     }
-    
+
     const { addFilter } = wp.hooks;
     const { __ } = wp.i18n;
 
@@ -24,13 +24,13 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
      * Agregar columnas Flow a la tabla de clientes
      */
     console.log( '→ Flow: Intentando registrar columnas...' );
-    
+
     const columnsAdded = addFilter(
         'woocommerce_admin_customers_report_columns',
         'flow-plugin/custom-columns',
         function( columns ) {
             console.log( '→ Flow: Filtro de columnas ejecutado', columns );
-            
+
             const newColumns = [
                 ...columns,
                 {
@@ -55,12 +55,12 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
                     isSortable: false,
                 }
             ];
-            
+
             console.log( '✓ Flow: Columnas agregadas', newColumns );
             return newColumns;
         }
     );
-    
+
     console.log( '✓ Flow: addFilter registrado', columnsAdded );
 
     /**
@@ -379,7 +379,7 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
         // Agregar celdas de datos
         const dataRows = table.querySelectorAll( 'tbody tr, tr:not(:first-child)' );
         dataRows.forEach( function( row, index ) {
-            if ( !row.querySelector( '.flow-status-cell' ) ) {
+            if ( !row.querySelector( '.flow-status-cell' ) && index !== 0 ) {
                 const statusCell = document.createElement( 'td' );
                 statusCell.className = 'flow-status-cell flow-column-added';
                 statusCell.innerHTML = '<span style="color: #999;">Cargando...</span>';
