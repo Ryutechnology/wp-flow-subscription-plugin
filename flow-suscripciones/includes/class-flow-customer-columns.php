@@ -64,12 +64,6 @@ class Flow_Customer_Columns {
         // Add to WordPress users list when viewing customers
         add_action('load-users.php', array($this, 'init_users_page_hooks'));
 
-
-        // Add admin notice for debugging (only in development)
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            add_action('admin_notices', array($this, 'show_debug_notice'));
-        }
-
         add_filter( 'woocommerce_admin_report_columns', function( $columns, $context, $table_name ) {
 
             if ( $context === 'customers' ) { // solo para reporte de clientes
@@ -127,9 +121,9 @@ class Flow_Customer_Columns {
         add_filter( 'woocommerce_admin_customer_list_table_columns', 'agregar_columna_custom_cliente' );
         add_filter( 'woocommerce_admin_customer_list_table_column_value', 'mostrar_valor_columna_custom_cliente', 10, 3 );
 
-
-        $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_wc_admin%'" );
-        $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_wc_admin%'" );
+        // Commented out - these DELETE queries were breaking WooCommerce admin
+        // $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_wc_admin%'" );
+        // $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_wc_admin%'" );
 
         // Add AJAX handlers for Flow customer data
         add_action('wp_ajax_get_flow_customer_data', array($this, 'ajax_get_flow_customer_data'));
@@ -1012,39 +1006,6 @@ class Flow_Customer_Columns {
                 return 'Pendiente';
             default:
                 return 'Sin suscripción';
-        }
-    }
-
-    /**
-     * Show debug notice about where Flow columns are available
-     */
-    public function show_debug_notice() {
-        $screen = get_current_screen();
-        if (!$screen) {
-            return;
-        }
-
-        // Only show on customer-related pages
-        if (strpos($screen->id, 'users') !== false || strpos($screen->id, 'woocommerce') !== false) {
-            static $notice_shown = false;
-            if ($notice_shown) return;
-            $notice_shown = true;
-
-            $available_locations = array(
-                'WordPress Users (All Users)' => admin_url('users.php'),
-                'WordPress Users (Customers Only)' => admin_url('users.php?role=customer'),
-                'WooCommerce → Customers' => admin_url('admin.php?page=wc-customers'),
-            );
-
-            echo '<div class="notice notice-info is-dismissible">';
-            echo '<p><strong>Flow Subscription Columns:</strong> Available in the following locations:</p>';
-            echo '<ul>';
-            foreach ($available_locations as $location => $url) {
-                echo '<li><a href="' . esc_url($url) . '">' . esc_html($location) . '</a></li>';
-            }
-            echo '</ul>';
-            echo '<p><em>Current page: ' . esc_html($screen->id) . '</em></p>';
-            echo '</div>';
         }
     }
 

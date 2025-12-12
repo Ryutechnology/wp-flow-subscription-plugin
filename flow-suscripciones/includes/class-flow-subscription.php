@@ -64,8 +64,9 @@ class Flow_Subscription {
             return ['success' => false, 'message' => 'Error al guardar suscripción en base de datos'];
         }
         
-        // Create plan in Flow
-        $plan_result = $this->api->create_plan($clean_data['plan_id'], $clean_data['amount']);
+        // Create plan in Flow with callback URL
+        $callback_url = rest_url('flow/v1/payment-callback');
+        $plan_result = $this->api->create_plan($clean_data['plan_id'], $clean_data['amount'], $callback_url);
 
         if (!empty($plan_result['code'])) {
             // Delete subscription if plan creation fails

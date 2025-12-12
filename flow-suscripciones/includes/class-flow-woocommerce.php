@@ -4,18 +4,37 @@ if (!defined('ABSPATH')) exit;
 class Flow_WooCommerce {
 
     public function __construct() {
-        // Only initialize if WooCommerce is active
+        // Initialize hooks immediately, but check WooCommerce availability in each method
+        add_action('init', [$this, 'init']);
+
+        // Also try to initialize on plugins_loaded with high priority
+        add_action('plugins_loaded', [$this, 'init_early'], 5);
+
+        // Force initialization when WooCommerce loads
+        add_action('woocommerce_loaded', [$this, 'force_gateway_registration']);
+    }
+
+    /**
+     * Early initialization with highest priority
+     */
+    public function init_early() {
+        // Only initialize if WooCommerce is available
         if (!class_exists('WooCommerce')) {
             return;
         }
-        
-        add_action('init', [$this, 'init']);
+
+        $this->init();
     }
 
     /**
      * Initialize WooCommerce integration
      */
     public function init() {
+        // Only initialize if WooCommerce is available
+        if (!class_exists('WooCommerce')) {
+            return;
+        }
+
         // Load payment gateway class first when plugins are loaded
         add_action('plugins_loaded', [$this, 'load_payment_gateway'], 11);
 
@@ -27,6 +46,27 @@ class Flow_WooCommerce {
 
         // Sync credentials on admin init
         add_action('admin_init', [$this, 'sync_flow_credentials']);
+    }
+
+    /**
+     * Force gateway registration when WooCommerce loads
+     */
+    public function force_gateway_registration() {
+        // Load the payment gateway class
+        $this->load_payment_gateway();
+
+        // Register the gateway with WooCommerce
+        if (class_exists('Flow_Payment_Gateway')) {
+            // Add to the payment gateways filter
+            add_filter('woocommerce_payment_gateways', [$this, 'add_flow_gateway'], 999);
+
+            // Force refresh payment gateways
+            if (function_exists('WC') && WC()->payment_gateways()) {
+                // Clear cached gateways to force re-registration
+                WC()->payment_gateways()->payment_gateways = null;
+                WC()->payment_gateways()->init();
+            }
+        }
     }
 
     /**
@@ -73,20 +113,36 @@ class Flow_WooCommerce {
      * Add Flow payment gateway to WooCommerce
      */
     public function add_flow_gateway($gateways) {
-        if (class_exists('Flow_Payment_Gateway')) {
-            $gateways[] = 'Flow_Payment_Gateway';
+        // Ensure WooCommerce is available and the gateway class exists
+        if (!class_exists('WooCommerce') || !class_exists('WC_Payment_Gateway')) {
+            return $gateways;
+        }
 
-            // Add admin notice on successful registration (only once)
+        // Load the gateway class if not already loaded
+        $this->load_payment_gateway();
+
+        if (class_exists('Flow_Payment_Gateway')) {
+            // Check if gateway is not already in the array
+            if (!in_array('Flow_Payment_Gateway', $gateways)) {
+                $gateways[] = 'Flow_Payment_Gateway';
+                error_log('Flow WooCommerce: Gateway added to registration list');
+            }
+
+            // Add admin notice on successful registration (only once per session)
             static $notice_added = false;
-            if (!$notice_added && is_admin()) {
+            if (!$notice_added && is_admin() && current_user_can('manage_woocommerce')) {
                 add_action('admin_notices', function() {
                     echo '<div class="notice notice-success is-dismissible">';
-                    echo '<p><strong>Flow Suscripciones:</strong> Método de pago registrado exitosamente en WooCommerce.</p>';
+                    echo '<p><strong>Flow Suscripciones:</strong> Método de pago Flow registrado exitosamente en WooCommerce.</p>';
+                    echo '<p><small>Puedes configurarlo en WooCommerce → Ajustes → Pagos</small></p>';
                     echo '</div>';
                 });
                 $notice_added = true;
             }
+        } else {
+            error_log('Flow WooCommerce: Flow_Payment_Gateway class not found during registration');
         }
+
         return $gateways;
     }
 

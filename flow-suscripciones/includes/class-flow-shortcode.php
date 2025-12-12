@@ -380,7 +380,8 @@ class Flow_Shortcode {
             'timestamp' => time()
         ];
 
-        $plan = $this->get_flow_api()->create_plan($_SESSION['flow_plan_info']['plan'], $_SESSION['flow_plan_info']['amount']);
+        $callback_url = rest_url('flow/v1/payment-callback');
+        $plan = $this->get_flow_api()->create_plan($_SESSION['flow_plan_info']['plan'], $_SESSION['flow_plan_info']['amount'], $callback_url);
         if (!empty($plan['code'])) {
             $failure_url = add_query_arg([
                 'error' => 'Error al crear plan en Flow: ' . $plan['message'],

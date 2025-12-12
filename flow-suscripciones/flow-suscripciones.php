@@ -87,77 +87,50 @@ class Flow_Suscripciones {
 
         // Initialize plugin on WordPress init
         add_action('init', [$this, 'init']);
-
-        // Load text domain for translations
-        add_action('plugins_loaded', [$this, 'load_textdomain']);
     }
 
     /**
      * Initialize plugin components
      */
-    private function init_components() {
+    public function init_components() {
         try {
-            // Initialize admin interface
+            // GRADUAL RE-ENABLING - Testing components one by one
+            error_log('Flow: Starting gradual re-enabling mode');
+
+            // Load diagnostic tools
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'debug-errors.php';
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'check-database.php';
+
+            // Step 1: Re-enable admin interface
             if (is_admin()) {
                 $this->admin = new Flow_Admin();
+                error_log('Flow: Flow_Admin loaded');
             }
 
-            // Initialize public shortcode
+            // Step 2: Re-enable shortcode
             $this->shortcode = new Flow_Shortcode();
+            error_log('Flow: Flow_Shortcode loaded');
 
-            // Initialize flow return handler
+            // Step 3: Direct gateway registration
+            $this->register_payment_gateway();
+            error_log('Flow: Direct gateway registration loaded');
+
+            // Step 4: Test Flow_Activator (handles database setup)
             new Flow_Activator();
+            error_log('Flow: Flow_Activator loaded');
 
+            // Step 5: Add essential diagnostic tools
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'flow-diagnostic.php';
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'flow-repair.php';
+            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'check-gateway-status.php';
+            error_log('Flow: Essential diagnostic tools loaded');
 
-            // Initialize WooCommerce integration
-            new Flow_WooCommerce();
+            // Note: These components were DISABLED because they interfere with WooCommerce:
+            // - Flow_WooCommerce (too many aggressive hooks)
+            // - Flow_Customer_Columns (clears WC transients, modifies database)
+            // - Various debug/test tools (conflicting hooks)
 
-            // Initialize customer columns
-            new Flow_Customer_Columns();
-
-            // Load debug tools if WP_DEBUG is enabled
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'debug-payment-gateway.php';
-            }
-
-            // Load definitive gateway registration fix
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'fix-gateway-registration.php';
-
-            // Load manual trigger tool
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'manual-trigger.php';
-
-            // Load warning test tool
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'test-no-warnings.php';
-
-            // Load checkout debug tool
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'debug-checkout.php';
-
-            // Load quick fix tool
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'quick-fix-checkout.php';
-
-            // Load requirements checker
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'requirements-checker.php';
-
-            // Load block checkout support
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'block-checkout-support.php';
-
-            // Load classic checkout force (fallback solution)
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'force-classic-checkout.php';
-
-            // Load checkout compatibility checker
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'checkout-compatibility-check.php';
-
-            // Load shortcode error fix
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'shortcode-error-fix.php';
-
-            // Load Flow payment test tool
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'test-flow-payment.php';
-
-            // Load customer columns debug tool
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'debug-customer-columns.php';
-
-            // Load AJAX endpoint test tool
-            require_once FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'test-ajax-endpoint.php';
+            error_log('Flow: Safe initialization completed - Core functionality working');
         } catch (Exception $e) {
             add_action('admin_notices', function() use ($e) {
                 echo '<div class="notice notice-error"><p>';
@@ -195,14 +168,58 @@ class Flow_Suscripciones {
     }
 
     /**
-     * Load plugin text domain for translations
+     * Register Flow payment gateway with WooCommerce
      */
-    public function load_textdomain() {
-        load_plugin_textdomain(
-            'flow-suscripciones',
-            false,
-            dirname(plugin_basename(__FILE__)) . '/languages/'
-        );
+    public function register_payment_gateway() {
+        // Only register if WooCommerce is active
+        if (!class_exists('WooCommerce')) {
+            error_log('Flow Gateway: WooCommerce not available for registration');
+            return;
+        }
+
+        // Hook into WooCommerce payment gateways filter
+        add_filter('woocommerce_payment_gateways', array($this, 'add_flow_gateway_to_woocommerce'));
+
+        // Also hook into plugins_loaded to ensure it gets registered
+        add_action('plugins_loaded', array($this, 'load_gateway_class'), 11);
+
+        error_log('Flow Gateway: Registration hooks added');
+    }
+
+    /**
+     * Load the Flow payment gateway class
+     */
+    public function load_gateway_class() {
+        if (!class_exists('WC_Payment_Gateway')) {
+            error_log('Flow Gateway: WC_Payment_Gateway base class not available');
+            return;
+        }
+
+        // Load the gateway class
+        $gateway_file = FLOW_SUSCRIPCIONES_PLUGIN_DIR . 'includes/class-flow-payment-gateway.php';
+        if (file_exists($gateway_file)) {
+            require_once $gateway_file;
+            error_log('Flow Gateway: Gateway class file loaded from ' . $gateway_file);
+        } else {
+            error_log('Flow Gateway: Gateway class file not found at ' . $gateway_file);
+        }
+    }
+
+    /**
+     * Add Flow gateway to WooCommerce payment gateways
+     */
+    public function add_flow_gateway_to_woocommerce($gateways) {
+        // Ensure the gateway class is loaded
+        $this->load_gateway_class();
+
+        if (class_exists('Flow_Payment_Gateway')) {
+            $gateways[] = 'Flow_Payment_Gateway';
+            error_log('Flow Gateway: Successfully added to WooCommerce gateways array');
+        } else {
+            error_log('Flow Gateway: Flow_Payment_Gateway class not found when trying to register');
+        }
+
+        return $gateways;
     }
 
     /**
@@ -227,5 +244,7 @@ class Flow_Suscripciones {
     }
 }
 
-// Initialize the plugin
-Flow_Suscripciones::get_instance();
+// Initialize the plugin early to ensure WooCommerce integration works
+add_action('plugins_loaded', function() {
+    Flow_Suscripciones::get_instance();
+}, 20);

@@ -1,46 +1,4 @@
 <?php
-/**
- * Debug checkout payment methods availability
- */
-
-// Add debug information for checkout
-add_action('woocommerce_checkout_init', function() {
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('=== Flow Debug: Checkout Init ===');
-
-        if (function_exists('WC') && WC()->payment_gateways()) {
-            $payment_gateways = WC()->payment_gateways();
-            $all_gateways = $payment_gateways->payment_gateways();
-            $available_gateways = $payment_gateways->get_available_payment_gateways();
-
-            error_log('Total gateways registered: ' . count($all_gateways));
-            error_log('Available gateways for checkout: ' . count($available_gateways));
-
-            error_log('All gateway IDs: ' . implode(', ', array_keys($all_gateways)));
-            error_log('Available gateway IDs: ' . implode(', ', array_keys($available_gateways)));
-
-            // Check our Flow gateway specifically
-            if (isset($all_gateways['flow'])) {
-                $flow_gateway = $all_gateways['flow'];
-                error_log('Flow gateway found - Class: ' . get_class($flow_gateway));
-                error_log('Flow gateway enabled: ' . ($flow_gateway->enabled ?? 'undefined'));
-                error_log('Flow gateway title: ' . ($flow_gateway->title ?? 'undefined'));
-
-                // Test is_available method
-                if (method_exists($flow_gateway, 'is_available')) {
-                    $is_available = $flow_gateway->is_available();
-                    error_log('Flow gateway is_available(): ' . ($is_available ? 'TRUE' : 'FALSE'));
-                } else {
-                    error_log('Flow gateway missing is_available() method');
-                }
-            } else {
-                error_log('Flow gateway NOT found in registered gateways');
-            }
-        } else {
-            error_log('WooCommerce payment gateways not available');
-        }
-    }
-});
 
 // Add a notice in admin if no payment methods are available
 add_action('admin_notices', function() {
