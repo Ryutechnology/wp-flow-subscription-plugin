@@ -68,9 +68,9 @@ class Flow_Activator {
             $wc_customer_lookup_table
         ));
         if (empty($column_exists)) {
-            $result = $wpdb->query($wpdb->prepare("ALTER TABLE %i ADD COLUMN flow_customer_id VARCHAR(100) DEFAULT NULL", $wc_customer_lookup_table));
+            $result = $wpdb->query("ALTER TABLE `$wc_customer_lookup_table` ADD COLUMN `flow_customer_id` VARCHAR(100) DEFAULT NULL");
             if ($result === false) {
-                error_log('Flow Activator: Failed to add flow_customer_id column to ' . $wc_customer_lookup_table);
+                error_log('Flow Activator: Failed to add flow_customer_id column to ' . $wc_customer_lookup_table . '. Error: ' . $wpdb->last_error);
             } else {
                 error_log('Flow Activator: Successfully added flow_customer_id column to ' . $wc_customer_lookup_table);
             }
@@ -82,9 +82,9 @@ class Flow_Activator {
             $wc_customer_lookup_table
         ));
         if (empty($column_exists)) {
-            $result = $wpdb->query($wpdb->prepare("ALTER TABLE %i ADD COLUMN flow_subscription_id VARCHAR(100) DEFAULT NULL", $wc_customer_lookup_table));
+            $result = $wpdb->query("ALTER TABLE `$wc_customer_lookup_table` ADD COLUMN `flow_subscription_id` VARCHAR(100) DEFAULT NULL");
             if ($result === false) {
-                error_log('Flow Activator: Failed to add flow_subscription_id column to ' . $wc_customer_lookup_table);
+                error_log('Flow Activator: Failed to add flow_subscription_id column to ' . $wc_customer_lookup_table . '. Error: ' . $wpdb->last_error);
             } else {
                 error_log('Flow Activator: Successfully added flow_subscription_id column to ' . $wc_customer_lookup_table);
             }
@@ -96,9 +96,9 @@ class Flow_Activator {
             $wc_customer_lookup_table
         ));
         if (empty($column_exists)) {
-            $result = $wpdb->query($wpdb->prepare("ALTER TABLE %i ADD COLUMN flow_subscription_status VARCHAR(20) DEFAULT NULL", $wc_customer_lookup_table));
+            $result = $wpdb->query("ALTER TABLE `$wc_customer_lookup_table` ADD COLUMN `flow_subscription_status` VARCHAR(20) DEFAULT NULL");
             if ($result === false) {
-                error_log('Flow Activator: Failed to add flow_subscription_status column to ' . $wc_customer_lookup_table);
+                error_log('Flow Activator: Failed to add flow_subscription_status column to ' . $wc_customer_lookup_table . '. Error: ' . $wpdb->last_error);
             } else {
                 error_log('Flow Activator: Successfully added flow_subscription_status column to ' . $wc_customer_lookup_table);
             }

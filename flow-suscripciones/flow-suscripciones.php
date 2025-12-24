@@ -41,6 +41,7 @@ class Flow_Suscripciones {
         }
         $this->init_hooks();
         $this->init_components();
+        $this->add_repair_menu();
     }
 
     /**
@@ -241,6 +242,297 @@ class Flow_Suscripciones {
      */
     public static function get_plugin_url() {
         return FLOW_SUSCRIPCIONES_PLUGIN_URL;
+    }
+
+    /**
+     * Add repair menu for Flow customer columns (temporary)
+     */
+    private function add_repair_menu() {
+        add_action('admin_menu', array($this, 'flow_repair_admin_menu'));
+        add_action('admin_notices', array($this, 'flow_repair_admin_notice'));
+    }
+
+    public function flow_repair_admin_menu() {
+        add_submenu_page(
+            'tools.php',
+            'Fix Flow Customer Columns',
+            'Fix Flow Columns',
+            'manage_options',
+            'fix-flow-columns',
+            array($this, 'flow_repair_admin_page')
+        );
+    }
+
+    public function flow_repair_admin_notice() {
+        $screen = get_current_screen();
+        if ($screen && $screen->id !== 'tools_page_fix-flow-columns' && current_user_can('manage_options')) {
+            echo '<div class="notice notice-info is-dismissible">';
+            echo '<p><strong>Flow Customer Columns:</strong> ';
+            echo 'If you can\'t see the new Flow columns, <a href="' . admin_url('tools.php?page=fix-flow-columns') . '">run the repair tool</a> to fix the database.';
+            echo '</p>';
+            echo '</div>';
+        }
+    }
+
+    public function flow_repair_admin_page() {
+        if (!current_user_can('manage_options')) {
+            wp_die('You do not have permission to access this page.');
+        }
+
+        // Handle form submission
+        if (isset($_POST['run_repair']) && wp_verify_nonce($_POST['flow_repair_nonce'], 'flow_repair_action')) {
+            $this->run_column_repair();
+            return;
+        }
+
+        // Display the admin page
+        ?>
+        <div class="wrap">
+            <h1>🔧 Fix Flow Customer Columns</h1>
+
+            <div class="notice notice-info">
+                <p><strong>What this does:</strong></p>
+                <ul>
+                    <li>Adds missing Flow columns to the WooCommerce customer lookup table</li>
+                    <li>Syncs existing Flow subscription data</li>
+                    <li>Clears WooCommerce caches</li>
+                    <li>Makes the Flow columns visible in WooCommerce → Analytics → Customers</li>
+                </ul>
+            </div>
+
+            <div class="notice notice-warning">
+                <p><strong>⚠️ Important:</strong> This will modify your database. Make sure you have a backup before proceeding.</p>
+            </div>
+
+            <form method="post" style="margin-top: 20px;">
+                <?php wp_nonce_field('flow_repair_action', 'flow_repair_nonce'); ?>
+                <p>
+                    <input type="submit" name="run_repair" class="button button-primary button-large"
+                           value="🚀 Fix Flow Customer Columns"
+                           onclick="return confirm('Are you sure you want to run the repair? This will modify your database.');">
+                </p>
+            </form>
+
+            <h3>Current Status</h3>
+            <?php $this->show_current_status(); ?>
+        </div>
+        <?php
+    }
+
+    private function show_current_status() {
+        global $wpdb;
+
+        $wc_customer_lookup_table = $wpdb->prefix . 'wc_customer_lookup';
+
+        // Check if table exists
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$wc_customer_lookup_table'") === $wc_customer_lookup_table;
+
+        echo '<div class="notice notice-info inline">';
+
+        if (!$table_exists) {
+            echo '<p>❌ <strong>Critical:</strong> WooCommerce customer lookup table does not exist!</p>';
+        } else {
+            echo '<p>✅ WooCommerce customer lookup table exists</p>';
+
+            // Check for Flow columns
+            $columns = $wpdb->get_results("DESCRIBE $wc_customer_lookup_table");
+            $existing_columns = [];
+            foreach ($columns as $column) {
+                $existing_columns[] = $column->Field;
+            }
+
+            $flow_columns = ['flow_customer_id', 'flow_subscription_id', 'flow_subscription_status'];
+
+            foreach ($flow_columns as $column) {
+                if (in_array($column, $existing_columns)) {
+                    echo "<p>✅ Column <code>$column</code> exists</p>";
+                } else {
+                    echo "<p>❌ Column <code>$column</code> is missing</p>";
+                }
+            }
+
+            // Count customers with Flow data
+            $customers_with_flow = $wpdb->get_var("
+                SELECT COUNT(DISTINCT user_id)
+                FROM {$wpdb->usermeta}
+                WHERE meta_key IN ('_flow_subscription_id', '_flow_customer_id')
+            ");
+
+            echo "<p>📊 Found <strong>$customers_with_flow</strong> customers with Flow data in user meta</p>";
+        }
+
+        echo '</div>';
+    }
+
+    private function run_column_repair() {
+        global $wpdb;
+
+        echo '<div class="wrap">';
+        echo '<h1>🔧 Flow Customer Columns Repair Results</h1>';
+
+        // Get the WooCommerce customer lookup table name
+        $wc_customer_lookup_table = $wpdb->prefix . 'wc_customer_lookup';
+
+        // Check if table exists
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$wc_customer_lookup_table'") === $wc_customer_lookup_table;
+
+        if (!$table_exists) {
+            echo '<div class="notice notice-error"><p>❌ <strong>Error:</strong> WooCommerce customer lookup table does not exist!</p></div>';
+            echo '</div>';
+            return;
+        }
+
+        echo '<div class="notice notice-success"><p>✅ WooCommerce customer lookup table found</p></div>';
+
+        // Get current table structure
+        $current_columns = $wpdb->get_results("DESCRIBE $wc_customer_lookup_table");
+        $existing_columns = [];
+        foreach ($current_columns as $column) {
+            $existing_columns[] = $column->Field;
+        }
+
+        // Define Flow columns to add
+        $flow_columns = [
+            'flow_customer_id' => 'VARCHAR(100) DEFAULT NULL',
+            'flow_subscription_id' => 'VARCHAR(100) DEFAULT NULL',
+            'flow_subscription_status' => 'VARCHAR(20) DEFAULT NULL'
+        ];
+
+        $added_columns = [];
+
+        // Add missing columns
+        foreach ($flow_columns as $column_name => $column_definition) {
+            if (!in_array($column_name, $existing_columns)) {
+                echo '<p>➕ Adding column: ' . $column_name . '</p>';
+
+                $sql = "ALTER TABLE `$wc_customer_lookup_table` ADD COLUMN `$column_name` $column_definition";
+                $result = $wpdb->query($sql);
+
+                if ($result === false) {
+                    echo '<div class="notice notice-error inline"><p>❌ <strong>Failed to add ' . $column_name . ':</strong> ' . $wpdb->last_error . '</p></div>';
+                } else {
+                    echo '<div class="notice notice-success inline"><p>✅ Successfully added ' . $column_name . '</p></div>';
+                    $added_columns[] = $column_name;
+                }
+            } else {
+                echo '<p>ℹ️ Column ' . $column_name . ' already exists</p>';
+            }
+        }
+
+        // Sync Flow data
+        $this->sync_flow_data($wc_customer_lookup_table);
+
+        // Clear caches
+        $this->clear_wc_caches();
+
+        echo '<div class="notice notice-success">';
+        echo '<h3>🎉 Repair Complete!</h3>';
+        echo '<p><strong>Next steps:</strong></p>';
+        echo '<ul>';
+        echo '<li>Go to <strong>WooCommerce → Analytics → Customers</strong> to see the new columns</li>';
+        echo '<li>You should see: <strong>Flow Status</strong>, <strong>Flow Subscription ID</strong>, and <strong>Flow Dashboard</strong> links</li>';
+        echo '<li>You can also see them in <strong>Users → All Users</strong> when filtering by Customer role</li>';
+        echo '</ul>';
+        echo '</div>';
+
+        echo '</div>';
+    }
+
+    private function sync_flow_data($wc_customer_lookup_table) {
+        global $wpdb;
+
+        echo '<h3>📊 Syncing Flow Data</h3>';
+
+        $customers_with_flow_data = $wpdb->get_results("
+            SELECT DISTINCT user_id
+            FROM {$wpdb->usermeta}
+            WHERE meta_key IN ('_flow_subscription_id', '_flow_customer_id')
+        ");
+
+        if (empty($customers_with_flow_data)) {
+            echo '<p>ℹ️ No customers found with Flow data in user meta</p>';
+            return;
+        }
+
+        echo '<p>Found ' . count($customers_with_flow_data) . ' customers with Flow data</p>';
+
+        $synced_count = 0;
+
+        foreach ($customers_with_flow_data as $customer_data) {
+            $user_id = $customer_data->user_id;
+
+            $flow_subscription_id = get_user_meta($user_id, '_flow_subscription_id', true);
+            $flow_customer_id = get_user_meta($user_id, '_flow_customer_id', true);
+
+            if (empty($flow_subscription_id) && empty($flow_customer_id)) {
+                continue;
+            }
+
+            $customer_lookup_exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT customer_id FROM $wc_customer_lookup_table WHERE customer_id = %d",
+                $user_id
+            ));
+
+            if (!$customer_lookup_exists) {
+                continue;
+            }
+
+            // Determine subscription status
+            $subscription_status = 'inactive';
+            if (!empty($flow_subscription_id)) {
+                $recent_orders = wc_get_orders([
+                    'customer_id' => $user_id,
+                    'limit' => 1,
+                    'orderby' => 'date',
+                    'order' => 'DESC',
+                    'status' => ['completed', 'processing']
+                ]);
+
+                if (!empty($recent_orders)) {
+                    $latest_order = $recent_orders[0];
+                    $days_since_order = (time() - $latest_order->get_date_created()->getTimestamp()) / (24 * 60 * 60);
+
+                    if ($days_since_order <= 35) {
+                        $subscription_status = 'active';
+                    }
+                }
+            }
+
+            $update_data = [];
+            if (!empty($flow_customer_id)) {
+                $update_data['flow_customer_id'] = $flow_customer_id;
+            }
+            if (!empty($flow_subscription_id)) {
+                $update_data['flow_subscription_id'] = $flow_subscription_id;
+            }
+            $update_data['flow_subscription_status'] = $subscription_status;
+
+            $result = $wpdb->update(
+                $wc_customer_lookup_table,
+                $update_data,
+                ['customer_id' => $user_id],
+                ['%s', '%s', '%s'],
+                ['%d']
+            );
+
+            if ($result !== false) {
+                $synced_count++;
+            }
+        }
+
+        echo '<div class="notice notice-success"><p><strong>✅ Sync complete: ' . $synced_count . ' customers updated</strong></p></div>';
+    }
+
+    private function clear_wc_caches() {
+        if (function_exists('wc_delete_shop_order_transients')) {
+            wc_delete_shop_order_transients();
+        }
+
+        global $wpdb;
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_wc_admin%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_wc_admin%'");
+
+        echo '<p>🧹 Cleared WooCommerce caches</p>';
     }
 }
 

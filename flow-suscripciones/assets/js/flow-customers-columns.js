@@ -1,24 +1,43 @@
 /**
- * Agregar columnas Flow a WooCommerce → Clientes
+ * Agregar columnas Flow a WooCommerce → Clientes (React Interface)
  * Archivo: flow-customers-columns.js
+ *
+ * Este archivo maneja la integración con la interfaz de React de WooCommerce Admin
  */
+
+console.log('🚀 Flow: Cargando columnas para interfaz React de WooCommerce Admin');
 
 // Verificar que las dependencias estén disponibles
 if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
     console.error( '❌ Flow: wp.hooks no está disponible' );
+    console.log( '→ Flow: Intentando cargar de forma alternativa...' );
+
+    // Método alternativo para cargar en React
+    window.flowColumnsInit = window.flowColumnsInit || [];
+    window.flowColumnsInit.push(function() {
+        initFlowColumns();
+    });
+
+    // Intentar cargar después de un delay
+    setTimeout(function() {
+        if (window.wp && window.wp.hooks) {
+            console.log( '✓ Flow: wp.hooks cargado con delay' );
+            initFlowColumns();
+        }
+    }, 2000);
 } else {
-    console.log( '✓ Flow: wp.hooks está disponible' );
+    console.log( '✓ Flow: wp.hooks está disponible inmediatamente' );
+    initFlowColumns();
 }
 
-( function( wp ) {
-    // Verificar que addFilter existe
-    if ( !wp.hooks || !wp.hooks.addFilter ) {
-        console.error( '❌ Flow: addFilter no está disponible' );
+function initFlowColumns() {
+    if ( !window.wp || !window.wp.hooks || !window.wp.hooks.addFilter ) {
+        console.error( '❌ Flow: addFilter no está disponible en initFlowColumns' );
         return;
     }
 
-    const { addFilter } = wp.hooks;
-    const { __ } = wp.i18n;
+    const { addFilter } = window.wp.hooks;
+    const { __ } = window.wp.i18n || { __: function(text) { return text; } };
 
     /**
      * Agregar columnas Flow a la tabla de clientes
@@ -425,7 +444,7 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
         console.log( '→ Flow: Nonce available:', !!window.flowCustomerData.nonce );
 
         const formData = new FormData();
-        formData.append( 'action', 'get_flow_customer_data' );
+        formData.append( 'action', 'flow_get_customer_data' );
         formData.append( 'customer_id', customerId );
         formData.append( 'nonce', window.flowCustomerData.nonce );
 
@@ -544,8 +563,119 @@ if ( typeof wp === 'undefined' || typeof wp.hooks === 'undefined' ) {
         if ( window.location.pathname.includes( 'wc-admin' ) && window.location.search.includes( 'customers' ) ) {
             tryDOMModification();
         }
-    }, 5000 );
+        // También buscar en páginas de WooCommerce que contengan 'customer'
+        if ( window.location.search.includes( 'customer' ) ||
+             window.location.search.includes( 'woocommerce' ) ||
+             window.location.pathname.includes( 'woocommerce' ) ) {
+            tryDOMModification();
+        }
+    }, 3000 );
 
-    console.log( '✓ Flow: Columnas personalizadas cargadas en WooCommerce → Clientes' );
+    // Intentar inmediatamente con diferentes intervalos
+    setTimeout( tryDOMModification, 500 );
+    setTimeout( tryDOMModification, 2000 );
+    setTimeout( tryDOMModification, 5000 );
 
-} )( window.wp );
+    console.log( '✓ Flow: Columnas personalizadas cargadas en WooCommerce → Clientes (React)' );
+}
+
+// Para WooCommerce Admin React - intentar múltiples métodos de carga
+function initFlowForReact() {
+    try {
+        // Intentar cargar inmediatamente
+        if (window.wp && window.wp.hooks) {
+            console.log('✅ Flow: wp.hooks disponible, inicializando...');
+            initFlowColumns();
+        }
+
+        // También intentar después de que React se haya cargado
+        setTimeout(function() {
+            try {
+                if (window.wp && window.wp.hooks) {
+                    console.log('🔄 Flow: Reiniciando columnas después de carga de React');
+                    initFlowColumns();
+                }
+            } catch (error) {
+                console.error('❌ Flow: Error en reinicio de React:', error);
+            }
+        }, 3000);
+
+        // Método adicional para React routing
+        if (window.location && window.location.search &&
+            (window.location.search.includes('customers') ||
+             (window.location.hash && window.location.hash.includes('customers')))) {
+            setTimeout(function() {
+                try {
+                    console.log('🎯 Flow: Detectada página de customers, inicializando...');
+                    if (typeof tryDOMModification === 'function') {
+                        tryDOMModification();
+                    }
+                } catch (error) {
+                    console.error('❌ Flow: Error en DOM modification:', error);
+                }
+            }, 1000);
+        }
+    } catch (error) {
+        console.error('❌ Flow: Error en initFlowForReact:', error);
+    }
+}
+
+// Cargar cuando DOM esté listo
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initFlowForReact);
+} else {
+    // DOM ya está cargado
+    initFlowForReact();
+}
+
+// Observar cambios de URL para React Router - con manejo de errores
+try {
+    let lastUrl = location.href;
+    const flowUrlObserver = new MutationObserver(() => {
+        try {
+            const url = location.href;
+            if (url !== lastUrl) {
+                lastUrl = url;
+                if (url.includes('customers')) {
+                    console.log('🔄 Flow: Cambio de ruta detectado a customers');
+                    setTimeout(function() {
+                        try {
+                            if (typeof initFlowColumns === 'function') {
+                                initFlowColumns();
+                            }
+                            if (typeof tryDOMModification === 'function') {
+                                tryDOMModification();
+                            }
+                        } catch (error) {
+                            console.error('❌ Flow: Error en cambio de ruta:', error);
+                        }
+                    }, 1000);
+                }
+            }
+        } catch (error) {
+            console.error('❌ Flow: Error en observer callback:', error);
+        }
+    });
+
+    // Observar solo si el documento está disponible
+    if (document && document.body) {
+        flowUrlObserver.observe(document.body, {subtree: true, childList: true});
+        console.log('✅ Flow: Observer de URL iniciado');
+    } else if (document) {
+        // Esperar a que el body esté disponible
+        setTimeout(() => {
+            try {
+                if (document.body) {
+                    flowUrlObserver.observe(document.body, {subtree: true, childList: true});
+                    console.log('✅ Flow: Observer de URL iniciado (delayed)');
+                }
+            } catch (error) {
+                console.error('❌ Flow: Error iniciando observer delayed:', error);
+            }
+        }, 1000);
+    }
+} catch (error) {
+    console.error('❌ Flow: Error configurando observer de URL:', error);
+}
+
+console.log('✅ Flow: Sistema de columnas inicializado para WooCommerce React');
