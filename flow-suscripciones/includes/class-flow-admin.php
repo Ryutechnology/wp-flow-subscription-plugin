@@ -147,14 +147,25 @@ class Flow_Admin {
         global $wpdb;
         $rows = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}flow_subscriptions ORDER BY created_at DESC");
 
+        $current_environment = get_option('flow_environment', 'sandbox');
+        $base_dashboard_url = $current_environment === 'production'
+            ? 'https://dashboard.flow.cl'
+            : 'https://dashboard.sandbox.flow.cl';
+
         echo '<div class="wrap"><h1>Suscriptores</h1>';
         echo '<table class="widefat"><thead><tr>
                 <th>ID</th><th>Nombre</th><th>Email</th><th>Dirección</th>
-                <th>Ciudad</th><th>Monto</th><th>Status</th><th>FlowSubscriptionId</th><th>Creado</th>
+                <th>Ciudad</th><th>Monto</th><th>Status</th><th>FlowSubscriptionId</th><th>Creado</th><th>Acciones</th>
               </tr></thead><tbody>';
 
         if ($rows) {
             foreach ($rows as $r) {
+                $flow_dashboard_link = '';
+                if (!empty($r->flow_subscription_id)) {
+                    $dashboard_url = $base_dashboard_url . '/private/suscripciones/subscriptions/details/?sus_id=' . urlencode($r->flow_subscription_id);
+                    $flow_dashboard_link = '<a href="' . $dashboard_url . '" target="_blank" class="button button-secondary" title="Ver en Dashboard de Flow">Ver en Flow</a>';
+                }
+
                 echo '<tr>
                         <td>' . esc_html($r->id) . '</td>
                         <td>' . esc_html($r->name) . '</td>
@@ -165,10 +176,11 @@ class Flow_Admin {
                         <td>' . esc_html($r->status) . '</td>
                         <td>' . esc_html($r->flow_subscription_id) . '</td>
                         <td>' . esc_html($r->created_at) . '</td>
+                        <td>' . $flow_dashboard_link . '</td>
                       </tr>';
             }
         } else {
-            echo '<tr><td colspan="9">No hay suscriptores aún.</td></tr>';
+            echo '<tr><td colspan="10">No hay suscriptores aún.</td></tr>';
         }
 
         echo '</tbody></table></div>';
