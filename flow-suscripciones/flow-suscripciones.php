@@ -58,19 +58,13 @@ class Flow_Suscripciones {
             // Verify all classes loaded successfully
             $missing_classes = Flow_Loader::verify_classes();
             if (!empty($missing_classes)) {
-                add_action('admin_notices', function() use ($missing_classes) {
-                    echo '<div class="notice notice-error"><p>';
-                    echo 'Flow Suscripciones: Missing classes: ' . implode(', ', $missing_classes);
-                    echo '</p></div>';
-                });
+                // Silently log missing classes without showing admin notice
+                error_log('Flow Suscripciones: Missing classes: ' . implode(', ', $missing_classes));
                 return false;
             }
         } catch (Exception $e) {
-            add_action('admin_notices', function() use ($e) {
-                echo '<div class="notice notice-error"><p>';
-                echo 'Flow Suscripciones Error: ' . esc_html($e->getMessage());
-                echo '</p></div>';
-            });
+            // Silently log exception without showing admin notice
+            error_log('Flow Suscripciones Error: ' . $e->getMessage());
             return false;
         }
         return true;
@@ -133,11 +127,8 @@ class Flow_Suscripciones {
 
             error_log('Flow: Safe initialization completed - Core functionality working');
         } catch (Exception $e) {
-            add_action('admin_notices', function() use ($e) {
-                echo '<div class="notice notice-error"><p>';
-                echo 'Flow Suscripciones Component Error: ' . esc_html($e->getMessage());
-                echo '</p></div>';
-            });
+            // Silently log component error without showing admin notice
+            error_log('Flow Suscripciones Component Error: ' . $e->getMessage());
         }
     }
 
@@ -249,7 +240,7 @@ class Flow_Suscripciones {
      */
     private function add_repair_menu() {
         add_action('admin_menu', array($this, 'flow_repair_admin_menu'));
-        add_action('admin_notices', array($this, 'flow_repair_admin_notice'));
+        // Removed admin notice to reduce notice spam
     }
 
     public function flow_repair_admin_menu() {
@@ -263,16 +254,7 @@ class Flow_Suscripciones {
         );
     }
 
-    public function flow_repair_admin_notice() {
-        $screen = get_current_screen();
-        if ($screen && $screen->id !== 'tools_page_fix-flow-columns' && current_user_can('manage_options')) {
-            echo '<div class="notice notice-info is-dismissible">';
-            echo '<p><strong>Flow Customer Columns:</strong> ';
-            echo 'If you can\'t see the new Flow columns, <a href="' . admin_url('tools.php?page=fix-flow-columns') . '">run the repair tool</a> to fix the database.';
-            echo '</p>';
-            echo '</div>';
-        }
-    }
+    // Removed flow_repair_admin_notice to eliminate admin notice spam
 
     public function flow_repair_admin_page() {
         if (!current_user_can('manage_options')) {

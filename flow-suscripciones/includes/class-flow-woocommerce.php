@@ -128,17 +128,7 @@ class Flow_WooCommerce {
                 error_log('Flow WooCommerce: Gateway added to registration list');
             }
 
-            // Add admin notice on successful registration (only once per session)
-            static $notice_added = false;
-            if (!$notice_added && is_admin() && current_user_can('manage_woocommerce')) {
-                add_action('admin_notices', function() {
-                    echo '<div class="notice notice-success is-dismissible">';
-                    echo '<p><strong>Flow Suscripciones:</strong> Método de pago Flow registrado exitosamente en WooCommerce.</p>';
-                    echo '<p><small>Puedes configurarlo en WooCommerce → Ajustes → Pagos</small></p>';
-                    echo '</div>';
-                });
-                $notice_added = true;
-            }
+            // Flow payment gateway registration completed successfully (no admin notice to reduce spam)
         } else {
             error_log('Flow WooCommerce: Flow_Payment_Gateway class not found during registration');
         }

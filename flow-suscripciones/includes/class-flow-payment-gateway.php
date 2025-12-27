@@ -642,16 +642,11 @@ class Flow_Payment_Gateway extends WC_Payment_Gateway {
         $flow_secret_key = get_option('flow_secret_key');
 
         if ($flow_api_key && $flow_secret_key) {
-            echo '<div class="notice notice-success inline"><p><strong>✓ Credenciales Flow sincronizadas automáticamente</strong></p></div>';
-
-            // Auto-sync credentials if they're different
+            // Auto-sync credentials if they're different (silently)
             if ($this->api_key !== $flow_api_key || $this->secret_key !== $flow_secret_key) {
                 $this->update_option('api_key', $flow_api_key);
                 $this->update_option('secret_key', $flow_secret_key);
-                echo '<div class="notice notice-info inline"><p>Credenciales actualizadas automáticamente desde la configuración principal de Flow.</p></div>';
             }
-        } else {
-            echo '<div class="notice notice-warning inline"><p><strong>⚠ Configura las credenciales Flow en Flow Suscripciones > Configuración</strong></p></div>';
         }
         ?>
 
