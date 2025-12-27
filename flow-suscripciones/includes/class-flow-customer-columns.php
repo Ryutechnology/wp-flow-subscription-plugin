@@ -4,144 +4,42 @@ if (!defined('ABSPATH')) exit;
 class Flow_Customer_Columns {
 
     public function __construct() {
-        global $wpdb;
-        // Hook into WordPress init to create the database column
-        add_action('init', array($this, 'create_customer_column'));
+        add_filter(
+            'woocommerce_rest_prepare_report_customers',
+            [$this, 'extend_customers_report'],
+            10,
+            3
+        );
+    }
 
-        // Add custom column to customers list (WordPress users table)
-        add_filter('manage_users_columns', array($this, 'add_customer_column'));
-        add_filter('manage_users_custom_column', array($this, 'show_customer_column_content'), 10, 3);
+    public function extend_customers_report($response, $customer, $request) {
+        $data = $response->get_data();
+        $user_id = $data['user_id'] ?? 0;
 
-        // Force add columns on all admin pages that might show customers
-        add_action('admin_menu', array($this, 'modify_woocommerce_customer_menu'));
-        add_action('admin_head', array($this, 'inject_customer_column_styles'));
-
-        // Ensure columns appear when accessing via WooCommerce menu
-        add_action('load-users.php', array($this, 'force_customer_columns_on_wc_access'));
-        add_action('current_screen', array($this, 'detect_woocommerce_customer_access'));
-
-        // Add custom field to user profile
-        add_action('show_user_profile', array($this, 'add_customer_profile_field'));
-        add_action('edit_user_profile', array($this, 'add_customer_profile_field'));
-
-        // Save custom field
-        add_action('personal_options_update', array($this, 'save_customer_profile_field'));
-        add_action('edit_user_profile_update', array($this, 'save_customer_profile_field'));
-
-        // Add WooCommerce customer list columns (multiple hooks for different WooCommerce versions)
-        add_filter('woocommerce_customer_list_columns', array($this, 'add_woocommerce_customer_columns'));
-        add_filter('woocommerce_customer_list_column_content', array($this, 'show_woocommerce_customer_column_content'), 10, 3);
-
-        // Add columns to WooCommerce Analytics customers table
-        add_filter('woocommerce_admin_customers_list_table_columns', array($this, 'add_woocommerce_customer_columns'));
-        add_action('woocommerce_admin_customers_list_table_column_content', array($this, 'show_woocommerce_analytics_column_content'), 10, 2);
-
-        // Add columns to WooCommerce customers list in admin
-        add_filter('manage_woocommerce_page_wc-customers_columns', array($this, 'add_woocommerce_customer_columns'));
-        add_action('manage_woocommerce_page_wc-customers_custom_column', array($this, 'show_woocommerce_admin_column_content'), 10, 2);
-
-        // Hook into WooCommerce customer list specifically
-        add_action('admin_init', array($this, 'init_customer_list_hooks'));
-
-        // Add hooks for different WooCommerce versions and contexts
-        add_filter('woocommerce_customers_list_table_columns', array($this, 'add_woocommerce_customer_columns'));
-        add_action('woocommerce_customers_list_table_column_content', array($this, 'show_woocommerce_analytics_column_content'), 10, 2);
-
-        // Add hooks for WooCommerce Admin (React-based interface)
-        add_action('admin_enqueue_scripts', array($this, 'enqueue_customer_admin_scripts'));
-
-        // Try different WooCommerce hooks that might work
-        add_action('woocommerce_loaded', array($this, 'init_woocommerce_hooks'));
-        add_action('woocommerce_admin_loaded', array($this, 'init_woocommerce_admin_hooks'));
-
-        // Hook into REST API responses for customer data
-        add_filter('woocommerce_rest_customer_object_query', array($this, 'modify_customer_rest_query'), 10, 2);
-        add_filter('woocommerce_rest_prepare_customer', array($this, 'add_flow_data_to_customer_rest'), 10, 3);
-
-        // Add JavaScript for WooCommerce Admin React interface
-        add_action('admin_enqueue_scripts', array($this, 'enqueue_wc_admin_scripts'));
-
-        // Add to WordPress users list when viewing customers
-        add_action('load-users.php', array($this, 'init_users_page_hooks'));
-
-
-        // Add admin notice for debugging (only in development)
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            add_action('admin_notices', array($this, 'show_debug_notice'));
+        if (!$user_id) {
+            return $response;
         }
 
-        add_filter( 'woocommerce_admin_report_columns', function( $columns, $context, $table_name ) {
+        $data['flow_subscription_id'] = get_user_meta(
+            $user_id,
+            '_flow_subscription_id',
+            true
+        ) ?: '—';
 
-            if ( $context === 'customers' ) { // solo para reporte de clientes
-                $columns['flow_subscription_status'] = $table_name  . '.flow_subscription_status as flow_subscription_status';
+        $data['flow_customer_id'] = get_user_meta(
+            $user_id,
+            '_flow_customer_id',
+            true
+        ) ?: '—';
 
-                $columns['flow_subscription_id'] = $table_name  . '.flow_subscription_id as flow_subscription_id';
-            }
+        $data['flow_subscription_status'] = get_user_meta(
+            $user_id,
+            '_flow_subscription_status',
+            true
+        ) ?: '—';
 
-            return $columns;
-
-        }, 10, 3 );
-
-        add_filter( 'woocommerce_admin_report_column_data', function( $value, $column, $item ) {
-
-            if ( $column === 'flow_subscription_status' ) {
-                return isset( $item['flow_subscription_status'] ) ? $item['flow_subscription_status'] : '';
-            }
-
-            if ( $column === 'flow_subscription_id' ) {
-                return isset( $item['flow_subscription_id'] ) ? $item['flow_subscription_id'] : '';
-            }
-
-            return $value;
-
-        }, 10, 3 );
-
-
-        add_filter( 'woocommerce_analytics_customers_data', function( $customers ) {
-            global $wpdb;
-
-            foreach ( $customers as &$customer ) {
-
-                $customer_id = $customer['id'] ?? 0; // en Analytics API se llama 'id'
-                if ( ! $customer_id ) continue;
-
-                // Leer desde wc_customer_lookup
-                $row = $wpdb->get_row(
-                    $wpdb->prepare(
-                        "SELECT flow_subscription_status, flow_subscription_id
-                        FROM {$wpdb->prefix}wc_customer_lookup
-                        WHERE customer_id = %d LIMIT 1",
-                        $customer_id
-                    ),
-                    ARRAY_A
-                );
-
-                // Inyectar tus campos
-                $customer['flow_subscription_status'] = $row['flow_subscription_status'] ?? '';
-                $customer['flow_subscription_id']     = $row['flow_subscription_id'] ?? '';
-            }
-
-            return $customers;
-        } );
-
-        add_filter( 'woocommerce_admin_customer_list_table_columns', 'agregar_columna_custom_cliente' );
-        add_filter( 'woocommerce_admin_customer_list_table_column_value', 'mostrar_valor_columna_custom_cliente', 10, 3 );
-
-
-        $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_wc_admin%'" );
-        $wpdb->query( "DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_wc_admin%'" );
-
-        // Add AJAX handlers for Flow customer data
-        add_action('wp_ajax_get_flow_customer_data', array($this, 'ajax_get_flow_customer_data'));
-        add_action('wp_ajax_nopriv_get_flow_customer_data', array($this, 'ajax_get_flow_customer_data'));
-
-        // Add test AJAX handler for debugging
-        add_action('wp_ajax_test_flow_ajax', array($this, 'test_ajax_handler'));
-        add_action('wp_ajax_nopriv_test_flow_ajax', array($this, 'test_ajax_handler'));
-
-        // Add debug version of Flow customer data handler (less strict)
-        add_action('wp_ajax_debug_flow_customer_data', array($this, 'debug_ajax_get_flow_customer_data'));
-        add_action('wp_ajax_nopriv_debug_flow_customer_data', array($this, 'debug_ajax_get_flow_customer_data'));
+        $response->set_data($data);
+        return $response;
     }
 
     public function agregar_columna_custom_cliente( $columns ) {

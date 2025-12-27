@@ -90,6 +90,24 @@ class Flow_Suscripciones {
 
         // Load text domain for translations
         add_action('plugins_loaded', [$this, 'load_textdomain']);
+        add_action('admin_enqueue_scripts', function () {
+
+            if (
+                !isset($_GET['page'], $_GET['path']) ||
+                $_GET['page'] !== 'wc-admin' ||
+                $_GET['path'] !== '/customers'
+            ) {
+                return;
+            }
+
+            wp_enqueue_script(
+                'flow-wc-admin-customers',
+                plugin_dir_url(__FILE__) . 'assets/js/wc-admin-customers.js',
+                ['wp-hooks', 'wp-element', 'wp-data'],
+                '1.0.0',
+                true
+            );
+        });
     }
 
     /**
